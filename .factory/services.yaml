@@ -1,6 +1,6 @@
 commands:
-  build: xcodebuild build -project TacNet.xcodeproj -scheme TacNet -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' 2>&1 | tail -20
-  test: xcodebuild test -project TacNet.xcodeproj -scheme TacNet -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' 2>&1 | tail -40
+  build: xcodebuild build -project TacNet.xcodeproj -scheme TacNet -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest'
+  test: xcodebuild test -project TacNet.xcodeproj -scheme TacNet -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest'
   clean: xcodebuild clean -project TacNet.xcodeproj -scheme TacNet
 
 services: {}
