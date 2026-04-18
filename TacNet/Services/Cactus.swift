@@ -1331,6 +1331,77 @@ public actor CactusModelInitializationService {
     }
 }
 
+// MARK: - Model handle abstraction
+
+public protocol ModelHandleProviding: Sendable {
+    func provideModelHandle() async throws -> CactusModelT
+}
+
+extension CactusModelInitializationService: ModelHandleProviding {
+    public func provideModelHandle() async throws -> CactusModelT {
+        try await initializeModelAfterEnsuringDownload()
+    }
+}
+
+// MARK: - Bundled model initialization (for models shipped inside the app bundle)
+
+public enum BundledModelError: Error, Equatable {
+    case resourceNotFound(String)
+    case initializationFailed(String)
+}
+
+public actor BundledModelInitializationService: ModelHandleProviding {
+    public typealias InitFunction = (String, String?, Bool) throws -> CactusModelT
+    public typealias DestroyFunction = (CactusModelT) -> Void
+
+    public static let parakeet = BundledModelInitializationService(
+        bundleResourceDirectory: "ParakeetCTC"
+    )
+
+    private let bundleResourceDirectory: String
+    private let initFunction: InitFunction
+    private let destroyFunction: DestroyFunction
+    private var loadedModelHandle: CactusModelT?
+
+    public init(
+        bundleResourceDirectory: String,
+        initFunction: @escaping InitFunction = cactusInit,
+        destroyFunction: @escaping DestroyFunction = cactusDestroy
+    ) {
+        self.bundleResourceDirectory = bundleResourceDirectory
+        self.initFunction = initFunction
+        self.destroyFunction = destroyFunction
+    }
+
+    public func provideModelHandle() async throws -> CactusModelT {
+        if let loadedModelHandle {
+            return loadedModelHandle
+        }
+
+        guard let bundlePath = Bundle.main.path(forResource: bundleResourceDirectory, ofType: nil) else {
+            throw BundledModelError.resourceNotFound(
+                "Bundled model '\(bundleResourceDirectory)' not found in app bundle"
+            )
+        }
+
+        NSLog("[BundledModel] Loading model from bundle path: %@", bundlePath)
+        do {
+            let handle = try initFunction(bundlePath, nil, false)
+            loadedModelHandle = handle
+            NSLog("[BundledModel] Model loaded successfully from %@", bundleResourceDirectory)
+            return handle
+        } catch {
+            throw BundledModelError.initializationFailed(error.localizedDescription)
+        }
+    }
+
+    public func destroyModelIfLoaded() {
+        guard let loadedModelHandle else { return }
+        destroyFunction(loadedModelHandle)
+        self.loadedModelHandle = nil
+    }
+}
+
 private final class ProgressReporter: @unchecked Sendable {
     private let lock = NSLock()
     private let progressHandler: (@Sendable (Double) -> Void)?

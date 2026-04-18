@@ -26,6 +26,8 @@
 		D24C38D42F927CB700DC5610 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = D24C38D32F927CB700DC5610 /* ZIPFoundation */; };
 		DCDED2D71C5E58146B3EF85E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665084993F5AD346766676E3 /* ContentView.swift */; };
 		E860E4FE8175156FBDA6ADB3 /* cactus-ios.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 840C37A2D2F49CB246A0AED1 /* cactus-ios.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		F1A2B3C4D5E6F708192A3B4C /* TextToSpeechService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F708192A3B40 /* TextToSpeechService.swift */; };
+		F1A2B3C4D5E6F708192A3B4D /* ParakeetCTC in Resources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F708192A3B41 /* ParakeetCTC */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -79,6 +81,8 @@
 		CBA28F70F5CA30B49BA85E15 /* FrameworkImportsProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FrameworkImportsProbe.swift; sourceTree = "<group>"; };
 		D4C3B2A1F0E9D8C7B6A59483 /* BluetoothMeshService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BluetoothMeshService.swift; sourceTree = "<group>"; };
 		DCC08F62BEAD6B96F2F1A649 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		F1A2B3C4D5E6F708192A3B40 /* TextToSpeechService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TextToSpeechService.swift; sourceTree = "<group>"; };
+		F1A2B3C4D5E6F708192A3B41 /* ParakeetCTC */ = {isa = PBXFileReference; lastKnownFileType = folder; path = ParakeetCTC; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -129,6 +133,7 @@
 			isa = PBXGroup;
 			children = (
 				DCC08F62BEAD6B96F2F1A649 /* Info.plist */,
+				F1A2B3C4D5E6F708192A3B41 /* ParakeetCTC */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -175,6 +180,7 @@
 			children = (
 				942FCEBF9EBF2DBA591798EC /* Cactus.swift */,
 				D4C3B2A1F0E9D8C7B6A59483 /* BluetoothMeshService.swift */,
+				F1A2B3C4D5E6F708192A3B40 /* TextToSpeechService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -346,6 +352,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F1A2B3C4D5E6F708192A3B4D /* ParakeetCTC in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -385,6 +392,7 @@
 				C15F1E37C9232822B5AD9CB0 /* FrameworkImportsProbe.swift in Sources */,
 				1DCCC616FCABDDA833533698 /* CactusFunctionProbe.swift in Sources */,
 				22811F4EAE3A4C3BA68A7A21 /* DataModels.swift in Sources */,
+				F1A2B3C4D5E6F708192A3B4C /* TextToSpeechService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

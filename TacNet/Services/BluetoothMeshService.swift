@@ -105,21 +105,21 @@ protocol TranscriptConsuming: Sendable {
 actor CactusTranscriber: CactusTranscribing {
     typealias TranscribeFunction = @Sendable (CactusModelT, Data) throws -> String
 
-    private let modelInitializationService: CactusModelInitializationService
+    private let modelHandleProvider: any ModelHandleProviding
     private let transcribeFunction: TranscribeFunction
 
     init(
-        modelInitializationService: CactusModelInitializationService = .shared,
+        modelHandleProvider: any ModelHandleProviding = BundledModelInitializationService.parakeet,
         transcribeFunction: @escaping TranscribeFunction = { model, pcmData in
             try cactusTranscribe(model, nil, nil, nil, nil, pcmData)
         }
     ) {
-        self.modelInitializationService = modelInitializationService
+        self.modelHandleProvider = modelHandleProvider
         self.transcribeFunction = transcribeFunction
     }
 
     func transcribePCM16kMono(_ pcmData: Data) async throws -> String {
-        let modelHandle = try await modelInitializationService.initializeModelAfterEnsuringDownload()
+        let modelHandle = try await modelHandleProvider.provideModelHandle()
         let responseJSON = try transcribeFunction(modelHandle, pcmData)
         return Self.extractTranscript(from: responseJSON)
     }

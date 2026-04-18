@@ -3136,6 +3136,7 @@ final class MainViewModel: ObservableObject {
     private let localDeviceID: String
     private let messageRouter: MessageRouter
     private let audioService: AudioService
+    private let ttsService: (any TextToSpeechService)?
     private var seenMessageIDs: Set<UUID> = []
     var onBroadcastPublished: ((Message) -> Void)?
 
@@ -3144,13 +3145,15 @@ final class MainViewModel: ObservableObject {
         roleClaimService: RoleClaimService,
         localDeviceID: String,
         messageRouter: MessageRouter = MessageRouter(),
-        audioService: AudioService = AudioService()
+        audioService: AudioService = AudioService(),
+        ttsService: (any TextToSpeechService)? = nil
     ) {
         self.meshService = meshService
         self.roleClaimService = roleClaimService
         self.localDeviceID = localDeviceID
         self.messageRouter = messageRouter
         self.audioService = audioService
+        self.ttsService = ttsService
         isConnected = !meshService.connectedPeerIDs.isEmpty
         if !isConnected {
             errorMessage = Self.disconnectedErrorText
@@ -3260,11 +3263,20 @@ final class MainViewModel: ObservableObject {
         feedEntries.sort { lhs, rhs in
             lhs.timestamp > rhs.timestamp
         }
+
+        if let ttsService {
+            let role = message.senderRole
+            Task { await ttsService.speak(textValue, senderRole: role) }
+        }
     }
 
     func startPushToTalk() async {
         guard pttState == .idle else {
             return
+        }
+
+        if let ttsService {
+            Task { await ttsService.stopSpeaking() }
         }
 
         guard !meshService.connectedPeerIDs.isEmpty else {
@@ -3449,6 +3461,7 @@ final class AppNetworkCoordinator: ObservableObject {
         localDeviceID: String = ProcessInfo.processInfo.hostName,
         messageRouter: MessageRouter = MessageRouter(),
         mainAudioService: AudioService = AudioService(),
+        ttsService: (any TextToSpeechService)? = AVSpeechTextToSpeechService(),
         compactionEngineFactory: @escaping CompactionEngineFactory = { localDeviceID, localNodeID, localSenderRole, initialTree, messageRouter in
             CompactionEngine(
                 localDeviceID: localDeviceID,
@@ -3487,7 +3500,8 @@ final class AppNetworkCoordinator: ObservableObject {
             roleClaimService: roleClaimService,
             localDeviceID: localDeviceID,
             messageRouter: messageRouter,
-            audioService: mainAudioService
+            audioService: mainAudioService,
+            ttsService: ttsService
         )
         treeViewModel = TreeViewModel(
             roleClaimService: roleClaimService,
