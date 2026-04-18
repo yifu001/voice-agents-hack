@@ -102,7 +102,7 @@ struct ContentView: View {
                 .font(.title3)
                 .fontWeight(.semibold)
 
-            Text("Gemma 4 E4B INT4 (~6.7 GB)")
+            Text(bootstrapViewModel.modelName)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
@@ -110,8 +110,14 @@ struct ContentView: View {
                 .progressViewStyle(.linear)
                 .frame(maxWidth: 260)
 
-            Text(bootstrapViewModel.progressLabel)
-                .font(.headline.monospacedDigit())
+            VStack(spacing: 4) {
+                Text(bootstrapViewModel.progressLabel)
+                    .font(.headline.monospacedDigit())
+
+                Text(bootstrapViewModel.byteProgressLabel)
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
 
             if let errorMessage = bootstrapViewModel.errorMessage {
                 Text(errorMessage)
@@ -3018,18 +3024,39 @@ final class AppNetworkCoordinator: ObservableObject {
 @MainActor
 final class AppBootstrapViewModel: ObservableObject {
     @Published private(set) var downloadProgress: Double = 0
+    @Published private(set) var downloadedBytes: Int64 = 0
     @Published private(set) var isDownloadComplete = false
     @Published private(set) var errorMessage: String?
 
     private let downloadService: ModelDownloadService
+    private let expectedModelSizeBytes: Int64
+    let modelName: String
     private var hasStarted = false
+    private static let byteFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.includesUnit = true
+        formatter.isAdaptive = true
+        return formatter
+    }()
 
-    init(downloadService: ModelDownloadService = .live) {
+    init(
+        downloadService: ModelDownloadService = .live,
+        modelName: String = "Gemma 4 E4B INT4",
+        expectedModelSizeBytes: Int64 = ModelDownloadConfiguration.live.expectedModelSizeBytes
+    ) {
         self.downloadService = downloadService
+        self.modelName = modelName
+        self.expectedModelSizeBytes = expectedModelSizeBytes
     }
 
     var progressLabel: String {
         "\(Int((downloadProgress * 100).rounded()))%"
+    }
+
+    var byteProgressLabel: String {
+        "\(formatBytes(downloadedBytes)) / \(formatBytes(expectedModelSizeBytes))"
     }
 
     func startIfNeeded() {
@@ -3039,6 +3066,7 @@ final class AppBootstrapViewModel: ObservableObject {
         Task {
             if await downloadService.canUseTacticalFeatures() {
                 downloadProgress = 1
+                downloadedBytes = expectedModelSizeBytes
                 isDownloadComplete = true
                 errorMessage = nil
                 return
@@ -3048,15 +3076,16 @@ final class AppBootstrapViewModel: ObservableObject {
                 _ = try await downloadService.ensureModelAvailable { [weak self] progress in
                     Task { @MainActor in
                         guard let self else { return }
-                        self.downloadProgress = max(self.downloadProgress, progress)
+                        self.setProgress(progress)
                     }
                 }
 
                 downloadProgress = 1
+                downloadedBytes = expectedModelSizeBytes
                 isDownloadComplete = true
                 errorMessage = nil
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = message(for: error)
             }
         }
     }
@@ -3065,6 +3094,38 @@ final class AppBootstrapViewModel: ObservableObject {
         hasStarted = false
         errorMessage = nil
         startIfNeeded()
+    }
+
+    private func setProgress(_ progress: Double) {
+        let clampedProgress = min(max(progress, 0), 1)
+        downloadProgress = max(downloadProgress, clampedProgress)
+
+        let bytesFromProgress = Int64((clampedProgress * Double(expectedModelSizeBytes)).rounded())
+        downloadedBytes = max(downloadedBytes, min(bytesFromProgress, expectedModelSizeBytes))
+    }
+
+    private func formatBytes(_ bytes: Int64) -> String {
+        Self.byteFormatter.string(fromByteCount: max(bytes, 0))
+    }
+
+    private func message(for error: Error) -> String {
+        guard let downloadError = error as? ModelDownloadServiceError else {
+            return error.localizedDescription
+        }
+
+        switch downloadError {
+        case let .insufficientStorage(requiredBytes, availableBytes):
+            let required = formatBytes(requiredBytes)
+            let available = formatBytes(availableBytes)
+            return "Insufficient storage for model download. Required: \(required). Available: \(available). Free up space and retry."
+        case let .interrupted(canResume):
+            if canResume {
+                return "Download interrupted. Retry to resume from where it left off."
+            }
+            return "Download interrupted. Retry to restart the model download."
+        case let .network(underlyingDescription):
+            return "Model download failed: \(underlyingDescription)"
+        }
     }
 }
 

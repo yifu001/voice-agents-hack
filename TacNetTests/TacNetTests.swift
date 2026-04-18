@@ -718,6 +718,12 @@ final class TacNetTests: XCTestCase {
         XCTAssertEqual(mockSession.requestCount, 0, "Network must not start when storage check fails")
         let gateState = await service.canUseTacticalFeatures()
         XCTAssertFalse(gateState)
+        let modelDirectory = sandbox.appSupportDirectory
+            .appendingPathComponent(makeModelDownloadConfiguration().modelDirectoryName, isDirectory: true)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: modelDirectory.path),
+            "Storage precheck failure should not leave partial model files or folders"
+        )
     }
 
     func testModelDownloadServiceResumesUsingStoredResumeDataAfterInterruption() async throws {
@@ -815,6 +821,152 @@ final class TacNetTests: XCTestCase {
         XCTAssertEqual(initPaths.count, 1)
         let downloadedDirectory = await service.downloadedModelDirectoryPath()
         XCTAssertEqual(initPaths.first, downloadedDirectory)
+    }
+
+    func testAppBootstrapViewModelShowsModelNamePercentageAndBytesDuringDownload() async throws {
+        let sandbox = try makeModelDownloadSandbox()
+        defer { sandbox.cleanup() }
+
+        let temporaryModelFile = try makeTemporaryModelFile(in: sandbox.baseDirectory)
+        let mockSession = MockURLSessionDownloadClient(
+            scriptedResponses: [
+                .init(
+                    progressEvents: [(500, 1_000)],
+                    result: .success(temporaryModelFile),
+                    responseDelayNanoseconds: 300_000_000
+                )
+            ]
+        )
+
+        let service = makeModelDownloadService(
+            sandbox: sandbox,
+            downloader: mockSession,
+            availableStorageBytes: 20_000_000_000
+        )
+
+        let viewModel = await MainActor.run { AppBootstrapViewModel(downloadService: service) }
+        await MainActor.run { viewModel.startIfNeeded() }
+
+        let reachedMidDownload = await waitForCondition(timeout: 1.0) {
+            await MainActor.run { viewModel.downloadProgress >= 0.5 && !viewModel.isDownloadComplete }
+        }
+        XCTAssertTrue(reachedMidDownload, "Expected in-progress state before download finishes")
+
+        let modelName = await MainActor.run { viewModel.modelName }
+        let percentLabel = await MainActor.run { viewModel.progressLabel }
+        let bytesLabel = await MainActor.run { viewModel.byteProgressLabel }
+        XCTAssertTrue(modelName.contains("Gemma"), "Download UI should show model name")
+        XCTAssertTrue(percentLabel.contains("%"), "Download UI should show progress percentage")
+        XCTAssertTrue(bytesLabel.contains("/"), "Download UI should show downloaded and total bytes")
+    }
+
+    func testAppBootstrapViewModelBlocksTacticalFeaturesDuringDownloadAndUnlocksWithinThreeSeconds() async throws {
+        let sandbox = try makeModelDownloadSandbox()
+        defer { sandbox.cleanup() }
+
+        let temporaryModelFile = try makeTemporaryModelFile(in: sandbox.baseDirectory)
+        let mockSession = MockURLSessionDownloadClient(
+            scriptedResponses: [
+                .init(
+                    progressEvents: [(100, 1_000), (600, 1_000)],
+                    result: .success(temporaryModelFile),
+                    responseDelayNanoseconds: 500_000_000
+                )
+            ]
+        )
+
+        let service = makeModelDownloadService(
+            sandbox: sandbox,
+            downloader: mockSession,
+            availableStorageBytes: 20_000_000_000
+        )
+
+        let viewModel = await MainActor.run { AppBootstrapViewModel(downloadService: service) }
+        await MainActor.run { viewModel.startIfNeeded() }
+
+        let initiallyBlocked = await MainActor.run { !viewModel.isDownloadComplete }
+        XCTAssertTrue(initiallyBlocked, "Tactical features must be blocked until download completes")
+
+        let unlockedWithinThreeSeconds = await waitForCondition(timeout: 3.0) {
+            await MainActor.run { viewModel.isDownloadComplete }
+        }
+        XCTAssertTrue(unlockedWithinThreeSeconds, "Features should unlock within 3 seconds of completion")
+    }
+
+    func testAppBootstrapViewModelShowsClearStorageErrorBeforeDownloadStarts() async throws {
+        let sandbox = try makeModelDownloadSandbox()
+        defer { sandbox.cleanup() }
+
+        let mockSession = MockURLSessionDownloadClient(scriptedResponses: [])
+        let service = makeModelDownloadService(
+            sandbox: sandbox,
+            downloader: mockSession,
+            availableStorageBytes: 1_000_000_000
+        )
+
+        let viewModel = await MainActor.run { AppBootstrapViewModel(downloadService: service) }
+        await MainActor.run { viewModel.startIfNeeded() }
+
+        let errorAppeared = await waitForCondition(timeout: 1.0) {
+            await MainActor.run { viewModel.errorMessage != nil }
+        }
+        XCTAssertTrue(errorAppeared, "Download gate should show an error when storage is insufficient")
+
+        let errorMessage = await MainActor.run { viewModel.errorMessage }
+        let resolvedMessage = try XCTUnwrap(errorMessage)
+        XCTAssertTrue(resolvedMessage.contains("Insufficient storage"))
+        XCTAssertTrue(resolvedMessage.contains("Free up"))
+        XCTAssertEqual(mockSession.requestCount, 0, "Storage failure should happen before any network requests")
+        let gateStillLocked = await MainActor.run { !viewModel.isDownloadComplete }
+        XCTAssertTrue(gateStillLocked)
+    }
+
+    func testAppBootstrapViewModelRetryResumesInterruptedDownloadFromPriorPoint() async throws {
+        let sandbox = try makeModelDownloadSandbox()
+        defer { sandbox.cleanup() }
+
+        let resumeData = Data("resume-checkpoint".utf8)
+        let temporaryModelFile = try makeTemporaryModelFile(in: sandbox.baseDirectory)
+        let mockSession = MockURLSessionDownloadClient(
+            scriptedResponses: [
+                .init(
+                    progressEvents: [(620, 1_000)],
+                    result: .failure(URLSessionDownloadClientError.interrupted(resumeData: resumeData))
+                ),
+                .init(
+                    progressEvents: [(700, 1_000), (1_000, 1_000)],
+                    result: .success(temporaryModelFile)
+                )
+            ]
+        )
+
+        let service = makeModelDownloadService(
+            sandbox: sandbox,
+            downloader: mockSession,
+            availableStorageBytes: 20_000_000_000
+        )
+
+        let viewModel = await MainActor.run { AppBootstrapViewModel(downloadService: service) }
+        await MainActor.run { viewModel.startIfNeeded() }
+
+        let interruptionSurfaced = await waitForCondition(timeout: 1.0) {
+            await MainActor.run { viewModel.errorMessage != nil }
+        }
+        XCTAssertTrue(interruptionSurfaced)
+
+        let progressAtInterruption = await MainActor.run { viewModel.downloadProgress }
+        XCTAssertGreaterThanOrEqual(progressAtInterruption, 0.60)
+
+        await MainActor.run { viewModel.retry() }
+        let completedAfterRetry = await waitForCondition(timeout: 2.0) {
+            await MainActor.run { viewModel.isDownloadComplete }
+        }
+        XCTAssertTrue(completedAfterRetry)
+        XCTAssertEqual(mockSession.requestCount, 2)
+        XCTAssertEqual(mockSession.request(at: 1)?.resumeData, resumeData, "Retry should resume using stored resume data")
+
+        let finalProgress = await MainActor.run { viewModel.downloadProgress }
+        XCTAssertGreaterThanOrEqual(finalProgress, progressAtInterruption, "Retry should continue from roughly the prior point")
     }
 
     func testTreeBuilderAddNodeCreatesUniqueUnclaimedChildAndIncrementsVersion() throws {
@@ -3443,6 +3595,17 @@ private final class MockURLSessionDownloadClient: URLSessionDownloading, @unchec
     struct ScriptedResponse {
         let progressEvents: [(written: Int64, total: Int64)]
         let result: Result<URL, Error>
+        let responseDelayNanoseconds: UInt64
+
+        init(
+            progressEvents: [(written: Int64, total: Int64)],
+            result: Result<URL, Error>,
+            responseDelayNanoseconds: UInt64 = 0
+        ) {
+            self.progressEvents = progressEvents
+            self.result = result
+            self.responseDelayNanoseconds = responseDelayNanoseconds
+        }
     }
 
     private let lock = NSLock()
@@ -3482,6 +3645,9 @@ private final class MockURLSessionDownloadClient: URLSessionDownloading, @unchec
         }
 
         response.progressEvents.forEach { progress($0.written, $0.total) }
+        if response.responseDelayNanoseconds > 0 {
+            try? await Task.sleep(nanoseconds: response.responseDelayNanoseconds)
+        }
 
         switch response.result {
         case let .success(url):
