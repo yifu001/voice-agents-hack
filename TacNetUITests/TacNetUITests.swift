@@ -88,6 +88,62 @@ final class TacNetUISmokeTests: XCTestCase {
         saveScreenshot(app, named: "launch-after-15s")
     }
 
+    // MARK: - VAL-UI-002 · Real bootstrap/download gate renders with accurate gating UI
+
+    /// Launches the app WITHOUT `--ui-test-skip-download`, using the deterministic
+    /// `stuck` download fixture so the gate remains visible for the full test window.
+    /// Asserts that the real `downloadGate` rendering satisfies VAL-UI-002:
+    /// * gate container, title, progress bar are visible
+    /// * "TacNet features are locked…" copy is visible
+    /// * retry button is hidden until an error occurs
+    /// * the app does not crash for ≥10 seconds on the download screen
+    func testBootstrapDownloadGateRendersAndGatingUIIsAccurate() {
+        let app = XCUIApplication()
+        // NOTE: no --ui-test-skip-download. The `stuck` fixture keeps the gate
+        // visible at 0% progress forever without pulling the real 6.7 GB payload.
+        app.launchArguments = ["--ui-test-download-fixture=stuck"]
+        app.launch()
+
+        let gateRoot = app.otherElements["tacnet.downloadGate.root"]
+        waitForExistence(gateRoot, timeout: 10, message: "Download gate did not render.")
+        saveScreenshot(app, named: "download-gate-initial")
+
+        // Title + progress bar + locked-copy must be visible on the gate.
+        let title = anyElement(app, identifier: "tacnet.downloadGate.title")
+        waitForExistence(title, timeout: 4, message: "Download gate title label is missing.")
+        let progressBar = anyElement(app, identifier: "tacnet.downloadGate.progressBar")
+        waitForExistence(progressBar, timeout: 4, message: "Download gate progress bar is missing.")
+        let lockedCopy = anyElement(app, identifier: "tacnet.downloadGate.lockedCopy")
+        waitForExistence(lockedCopy, timeout: 4, message: "Download gate locked-features copy is missing.")
+
+        // Retry button is error-only; it must NOT exist while there is no error.
+        let retryButton = app.buttons["tacnet.downloadGate.retryButton"]
+        XCTAssertFalse(
+            retryButton.exists,
+            "Retry button should be hidden when no error has been surfaced."
+        )
+
+        // App must not crash for at least 10 seconds while the gate holds.
+        let totalWaitSeconds: TimeInterval = 10
+        let startDate = Date()
+        while Date().timeIntervalSince(startDate) < totalWaitSeconds {
+            XCTAssertEqual(
+                app.state,
+                .runningForeground,
+                "App left foreground state before \(totalWaitSeconds)s on the download gate."
+            )
+            _ = XCUIApplication().wait(for: .runningForeground, timeout: 1)
+        }
+
+        // Gate remains visible after the 10s hold and still no retry button.
+        XCTAssertTrue(gateRoot.exists, "Download gate disappeared before the 10s hold elapsed.")
+        XCTAssertFalse(
+            app.buttons["tacnet.downloadGate.retryButton"].exists,
+            "Retry button became visible unexpectedly during the 10s gate hold."
+        )
+        saveScreenshot(app, named: "download-gate-after-10s")
+    }
+
     // MARK: - VAL-UI-002 · Initial screen renders appropriately
 
     func testInitialScreenRendersWithoutBlankState() {
@@ -332,6 +388,76 @@ final class TacNetUISmokeTests: XCTestCase {
 
         // App must still be running after the full walk.
         XCTAssertEqual(app.state, .runningForeground, "App is not running after full tab walkthrough.")
+    }
+
+    // MARK: - VAL-UI-011 · Settings role-appropriate affordances
+
+    /// Covers VAL-UI-011: organiser sees tree-editor entry + promote + release-role,
+    /// while a participant sees only release-role (organiser-only controls hidden).
+    /// Uses the `--ui-test-route=settings` host with `--ui-test-role=<role>` to seed
+    /// a deterministic network state without depending on BLE discovery.
+    func testSettingsTabShowsRoleAppropriateAffordances() {
+        // --- Organiser: all three affordances visible.
+        let organiserApp = XCUIApplication()
+        organiserApp.launchArguments = [
+            "--ui-test-route=settings",
+            "--ui-test-role=organiser",
+        ]
+        organiserApp.launch()
+
+        let organiserSettingsRoot = anyElement(organiserApp, identifier: "tacnet.settings.root")
+        waitForExistence(
+            organiserSettingsRoot,
+            timeout: 10,
+            message: "Settings root did not render in organiser host."
+        )
+        let organiserEditTree = organiserApp.buttons["tacnet.settings.editTreeButton"]
+        let organiserPromote = organiserApp.buttons["tacnet.settings.promoteButton"]
+        let organiserRelease = organiserApp.buttons["tacnet.settings.releaseRoleButton"]
+        XCTAssertTrue(
+            organiserEditTree.waitForExistence(timeout: 4),
+            "Organiser should see Edit Tree button in Settings."
+        )
+        XCTAssertTrue(
+            organiserPromote.waitForExistence(timeout: 4),
+            "Organiser should see Promote button in Settings."
+        )
+        XCTAssertTrue(
+            organiserRelease.waitForExistence(timeout: 4),
+            "Organiser should see Release Role button in Settings."
+        )
+        saveScreenshot(organiserApp, named: "settings-organiser")
+        organiserApp.terminate()
+
+        // --- Participant: only release-role visible; organiser controls hidden.
+        let participantApp = XCUIApplication()
+        participantApp.launchArguments = [
+            "--ui-test-route=settings",
+            "--ui-test-role=participant",
+        ]
+        participantApp.launch()
+
+        let participantSettingsRoot = anyElement(participantApp, identifier: "tacnet.settings.root")
+        waitForExistence(
+            participantSettingsRoot,
+            timeout: 10,
+            message: "Settings root did not render in participant host."
+        )
+        let participantRelease = participantApp.buttons["tacnet.settings.releaseRoleButton"]
+        XCTAssertTrue(
+            participantRelease.waitForExistence(timeout: 4),
+            "Participant should see Release Role button in Settings."
+        )
+        XCTAssertFalse(
+            participantApp.buttons["tacnet.settings.editTreeButton"].exists,
+            "Participant must NOT see Edit Tree button in Settings."
+        )
+        XCTAssertFalse(
+            participantApp.buttons["tacnet.settings.promoteButton"].exists,
+            "Participant must NOT see Promote button in Settings."
+        )
+        saveScreenshot(participantApp, named: "settings-participant")
+        participantApp.terminate()
     }
 
     // MARK: - Helpers for seeded flow

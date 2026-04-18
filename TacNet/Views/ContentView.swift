@@ -18,10 +18,33 @@ enum UITestMode {
     /// for a specific screen that is otherwise unreachable in Simulator (e.g. PIN
     /// entry, which requires a discovered BLE network).
     static var route: String? {
-        for arg in ProcessInfo.processInfo.arguments {
-            if arg.hasPrefix("--ui-test-route=") {
-                return String(arg.dropFirst("--ui-test-route=".count))
-            }
+        value(forPrefix: "--ui-test-route=")
+    }
+
+    /// Passing `--ui-test-download-fixture=<name>` replaces the real download flow in
+    /// `AppBootstrapViewModel` with a deterministic fixture so UI tests can assert the
+    /// real bootstrap gate UI without pulling down the 6.7 GB production model.
+    ///
+    /// Supported fixtures:
+    ///   * `"stuck"` — bootstrap stays at 0% progress indefinitely with no error so
+    ///     the download gate remains visible and the retry button stays hidden.
+    ///   * `"failfast"` — bootstrap unlocks near-instantaneously (equivalent to
+    ///     `--ui-test-skip-download`), suitable for tests that just want to rush past
+    ///     the gate.
+    static var downloadFixture: String? {
+        value(forPrefix: "--ui-test-download-fixture=")
+    }
+
+    /// Passing `--ui-test-role=<name>` seeds role-scoped UI hosts (e.g. the settings
+    /// host) with either `"organiser"` or `"participant"` state so role-gated
+    /// affordances can be verified without running a full network bring-up.
+    static var role: String? {
+        value(forPrefix: "--ui-test-role=")
+    }
+
+    private static func value(forPrefix prefix: String) -> String? {
+        for arg in ProcessInfo.processInfo.arguments where arg.hasPrefix(prefix) {
+            return String(arg.dropFirst(prefix.count))
         }
         return nil
     }
@@ -170,6 +193,7 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
+                    .accessibilityIdentifier("tacnet.downloadGate.lockedCopy")
             }
         }
         .padding()
@@ -187,10 +211,91 @@ private struct UITestRouteHost: View {
         switch route {
         case "pin-entry":
             UITestPinEntryHost()
+        case "settings":
+            UITestSettingsHost(role: UITestMode.role ?? "participant")
         default:
             Text("Unknown UI test route: \(route)")
                 .accessibilityIdentifier("tacnet.uiTestRoute.unknown")
         }
+    }
+}
+
+/// Hosts the real `SettingsView` against a seeded `RoleClaimService` so UI tests can
+/// verify that role-gated affordances (edit tree, promote, release role) appear only
+/// for the appropriate role. Triggered via `--ui-test-route=settings` and the
+/// `--ui-test-role=organiser|participant` launch argument.
+private struct UITestSettingsHost: View {
+    let role: String
+
+    @StateObject private var roleClaimService: RoleClaimService
+    @StateObject private var settingsViewModel: SettingsViewModel
+    @StateObject private var afterActionReviewViewModel: AfterActionReviewViewModel
+    private let meshService: BluetoothMeshService
+    private let treeSyncService: TreeSyncService
+
+    init(role: String) {
+        self.role = role
+
+        let organiserDeviceID = "ui-test-organiser"
+        let participantDeviceID = "ui-test-participant"
+        let localDeviceID = (role == "organiser") ? organiserDeviceID : participantDeviceID
+
+        let meshService = BluetoothMeshService()
+        self.meshService = meshService
+
+        let treeSyncService = TreeSyncService(meshService: meshService, configStore: nil)
+        self.treeSyncService = treeSyncService
+
+        // Seeded network: organiser owns the root "Commander" node and the child
+        // "Alpha" is held by the participant. This shape gives the organiser a
+        // promotable participant (for the Promote button) and guarantees the
+        // participant has an active claim to release.
+        let alphaNode = TreeNode(
+            id: "ui-test-alpha",
+            label: "Alpha",
+            claimedBy: participantDeviceID,
+            children: []
+        )
+        let rootNode = TreeNode(
+            id: "ui-test-root",
+            label: "Commander",
+            claimedBy: organiserDeviceID,
+            children: [alphaNode]
+        )
+        let seededConfig = NetworkConfig(
+            networkName: "UITest Network",
+            networkID: UUID(uuidString: "11111111-1111-1111-1111-111111111111") ?? UUID(),
+            createdBy: organiserDeviceID,
+            pinHash: nil,
+            encryptedSessionKey: nil,
+            version: 1,
+            tree: rootNode
+        )
+        treeSyncService.setLocalConfig(seededConfig)
+
+        let roleClaim = RoleClaimService(
+            meshService: meshService,
+            treeSyncService: treeSyncService,
+            localDeviceID: localDeviceID
+        )
+        _roleClaimService = StateObject(wrappedValue: roleClaim)
+        _settingsViewModel = StateObject(
+            wrappedValue: SettingsViewModel(roleClaimService: roleClaim)
+        )
+        _afterActionReviewViewModel = StateObject(
+            wrappedValue: AfterActionReviewViewModel(store: InMemoryAfterActionReviewStore())
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            SettingsView(
+                viewModel: settingsViewModel,
+                afterActionReviewViewModel: afterActionReviewViewModel,
+                onReleaseRole: {}
+            )
+        }
+        .accessibilityIdentifier("tacnet.uiTestRoute.settings.\(role)")
     }
 }
 
@@ -3269,6 +3374,27 @@ final class AppBootstrapViewModel: ObservableObject {
             isDownloadComplete = true
             errorMessage = nil
             return
+        }
+
+        if let fixture = UITestMode.downloadFixture {
+            switch fixture {
+            case "failfast":
+                NSLog("[ModelDownload] UI test fixture 'failfast' — unlocking gate immediately")
+                downloadProgress = 1
+                downloadedBytes = expectedModelSizeBytes
+                isDownloadComplete = true
+                errorMessage = nil
+                return
+            case "stuck":
+                NSLog("[ModelDownload] UI test fixture 'stuck' — holding gate at 0%% with no error")
+                downloadProgress = 0
+                downloadedBytes = 0
+                isDownloadComplete = false
+                errorMessage = nil
+                return
+            default:
+                NSLog("[ModelDownload] Unknown UI test fixture '%@' — falling through to real download", fixture)
+            }
         }
 
         Task {
