@@ -671,6 +671,141 @@ final class TacNetTests: XCTestCase {
         XCTAssertEqual(initPaths.first, downloadedDirectory)
     }
 
+    func testTreeBuilderAddNodeCreatesUniqueUnclaimedChildAndIncrementsVersion() throws {
+        let viewModel = TreeBuilderViewModel(networkName: "Operation Nightfall", createdBy: "organiser-device")
+        let initialVersion = viewModel.currentVersion
+        let rootID = viewModel.networkConfig.tree.id
+
+        let firstChild = try XCTUnwrap(viewModel.addNode(parentID: rootID, label: "Alpha Lead"))
+        let secondChild = try XCTUnwrap(viewModel.addNode(parentID: rootID, label: "Bravo Lead"))
+
+        XCTAssertEqual(viewModel.currentVersion, initialVersion + 2)
+        XCTAssertNotEqual(firstChild.id, secondChild.id, "Each added node should have a unique identifier")
+        XCTAssertNil(firstChild.claimedBy, "Newly added node should be unclaimed")
+        XCTAssertNil(secondChild.claimedBy, "Newly added node should be unclaimed")
+
+        let rootChildren = TreeHelpers.children(of: rootID, in: viewModel.networkConfig.tree)
+        XCTAssertEqual(rootChildren.map(\.id), [firstChild.id, secondChild.id])
+
+        let serialized = try XCTUnwrap(viewModel.serializedTreeJSON())
+        let decoded = try JSONDecoder().decode(TreeNode.self, from: Data(serialized.utf8))
+        XCTAssertEqual(decoded.children.map(\.id), [firstChild.id, secondChild.id], "Tree JSON should preserve new children for BLE distribution")
+    }
+
+    func testTreeBuilderRemoveNodeCascadesDescendantsAndIncrementsVersion() throws {
+        let viewModel = TreeBuilderViewModel(networkName: "Operation Nightfall", createdBy: "organiser-device")
+        let rootID = viewModel.networkConfig.tree.id
+
+        let alpha = try XCTUnwrap(viewModel.addNode(parentID: rootID, label: "Alpha"))
+        let alpha1 = try XCTUnwrap(viewModel.addNode(parentID: alpha.id, label: "Alpha-1"))
+        let alpha2 = try XCTUnwrap(viewModel.addNode(parentID: alpha.id, label: "Alpha-2"))
+
+        let versionBeforeRemove = viewModel.currentVersion
+        XCTAssertTrue(viewModel.removeNode(nodeID: alpha.id))
+        XCTAssertEqual(viewModel.currentVersion, versionBeforeRemove + 1, "Successful remove should increment version by exactly one")
+
+        XCTAssertNil(TreeHelpers.level(of: alpha.id, in: viewModel.networkConfig.tree))
+        XCTAssertNil(TreeHelpers.level(of: alpha1.id, in: viewModel.networkConfig.tree))
+        XCTAssertNil(TreeHelpers.level(of: alpha2.id, in: viewModel.networkConfig.tree))
+    }
+
+    func testTreeBuilderRenameNodeSupportsUnicodeEmojiAndIncrementsVersion() throws {
+        let viewModel = TreeBuilderViewModel(networkName: "Operation Nightfall", createdBy: "organiser-device")
+        let rootID = viewModel.networkConfig.tree.id
+        let node = try XCTUnwrap(viewModel.addNode(parentID: rootID, label: "Node"))
+
+        let unicodeLabel = "🛰️ Recon 팀 – 北侧"
+        let versionBeforeRename = viewModel.currentVersion
+        XCTAssertTrue(viewModel.renameNode(nodeID: node.id, newLabel: unicodeLabel))
+        XCTAssertEqual(viewModel.currentVersion, versionBeforeRename + 1, "Successful rename should increment version by exactly one")
+
+        let renamedNode = try XCTUnwrap(viewModel.node(withID: node.id))
+        XCTAssertEqual(renamedNode.label, unicodeLabel)
+    }
+
+    func testTreeBuilderVersionIncrementsByOnePerSuccessfulOperation() throws {
+        let viewModel = TreeBuilderViewModel(networkName: "Operation Nightfall", createdBy: "organiser-device")
+        let rootID = viewModel.networkConfig.tree.id
+
+        let start = viewModel.currentVersion
+        let child = try XCTUnwrap(viewModel.addNode(parentID: rootID, label: "Alpha"))
+        XCTAssertEqual(viewModel.currentVersion, start + 1)
+
+        XCTAssertTrue(viewModel.renameNode(nodeID: child.id, newLabel: "Alpha 🟢"))
+        XCTAssertEqual(viewModel.currentVersion, start + 2)
+
+        XCTAssertTrue(viewModel.removeNode(nodeID: child.id))
+        XCTAssertEqual(viewModel.currentVersion, start + 3)
+    }
+
+    func testTreeBuilderEmptyTreeHandlingIsGracefulAndSerializable() throws {
+        let viewModel = TreeBuilderViewModel(networkName: "Operation Nightfall", createdBy: "organiser-device")
+        XCTAssertFalse(viewModel.isTreeEmpty)
+
+        viewModel.clearTree()
+        XCTAssertTrue(viewModel.isTreeEmpty, "Cleared tree should be represented as an empty state")
+
+        let serialized = try XCTUnwrap(viewModel.serializedTreeJSON())
+        let decoded = try JSONDecoder().decode(TreeNode.self, from: Data(serialized.utf8))
+        XCTAssertEqual(decoded.children.count, 0)
+        XCTAssertEqual(decoded.label, "")
+        XCTAssertNil(decoded.claimedBy)
+
+        let recoveredNode = try XCTUnwrap(viewModel.addNode(parentID: decoded.id, label: "Recovered Node"))
+        XCTAssertEqual(recoveredNode.label, "Recovered Node")
+        XCTAssertFalse(viewModel.isTreeEmpty)
+    }
+
+    func testTreeBuilderDeepTreeFourPlusLevelsSerializesCorrectly() throws {
+        let viewModel = TreeBuilderViewModel(networkName: "Operation Nightfall", createdBy: "organiser-device")
+        let rootID = viewModel.networkConfig.tree.id
+
+        let l1 = try XCTUnwrap(viewModel.addNode(parentID: rootID, label: "L1"))
+        let l2 = try XCTUnwrap(viewModel.addNode(parentID: l1.id, label: "L2"))
+        let l3 = try XCTUnwrap(viewModel.addNode(parentID: l2.id, label: "L3"))
+        let l4 = try XCTUnwrap(viewModel.addNode(parentID: l3.id, label: "L4"))
+        _ = try XCTUnwrap(viewModel.addNode(parentID: l4.id, label: "L5"))
+
+        let serialized = try XCTUnwrap(viewModel.serializedTreeJSON())
+        let decodedTree = try JSONDecoder().decode(TreeNode.self, from: Data(serialized.utf8))
+        XCTAssertEqual(TreeHelpers.level(of: l4.id, in: decodedTree), 4, "Tree with 4+ levels should round-trip through JSON correctly")
+    }
+
+    func testTreeBuilderNetworkIDUniquenessAcrossManyNetworks() {
+        let ids = Set((0..<1_000).map { index in
+            TreeBuilderViewModel(
+                networkName: "Net-\(index)",
+                createdBy: "organiser-\(index)"
+            ).networkConfig.networkID
+        })
+
+        XCTAssertEqual(ids.count, 1_000, "Each network should be assigned a unique UUID")
+    }
+
+    func testTreeBuilderConcurrentEditsProduceMonotonicVersionsWithoutGaps() {
+        let viewModel = TreeBuilderViewModel(networkName: "Operation Nightfall", createdBy: "organiser-device")
+        let rootID = viewModel.networkConfig.tree.id
+        let startVersion = viewModel.currentVersion
+        let editCount = 40
+
+        let queue = DispatchQueue(label: "TacNet.TreeBuilder.ConcurrentEdits", attributes: .concurrent)
+        let group = DispatchGroup()
+
+        for index in 0..<editCount {
+            group.enter()
+            queue.async {
+                _ = viewModel.renameNode(nodeID: rootID, newLabel: "Commander-\(index)")
+                group.leave()
+            }
+        }
+
+        group.wait()
+
+        XCTAssertEqual(viewModel.currentVersion, startVersion + editCount)
+        let expectedVersions = Array((startVersion + 1)...(startVersion + editCount))
+        XCTAssertEqual(Array(viewModel.versionHistory.suffix(editCount)), expectedVersions, "Concurrent edits should still produce a strictly monotonic, gap-free version sequence")
+    }
+
     private func makeMeshMessage(
         id: UUID = UUID(),
         ttl: Int,

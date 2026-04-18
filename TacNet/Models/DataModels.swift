@@ -1,4 +1,6 @@
 import Foundation
+import Combine
+import CryptoKit
 
 struct TreeNode: Codable, Equatable, Sendable {
     var id: String
@@ -318,5 +320,294 @@ final class MessageDeduplicator: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return seenSet.count
+    }
+}
+
+final class TreeBuilderViewModel: ObservableObject, @unchecked Sendable {
+    @Published private(set) var networkConfig: NetworkConfig
+    @Published private(set) var versionHistory: [Int]
+
+    private let lock = NSLock()
+
+    init(
+        networkName: String = "New TacNet Network",
+        createdBy: String = "organiser-device",
+        pin: String? = nil,
+        rootNode: TreeNode = TreeNode(id: "root", label: "Commander", claimedBy: nil, children: []),
+        initialVersion: Int = 1,
+        networkID: UUID = UUID()
+    ) {
+        let normalizedName = Self.normalizedNetworkName(networkName)
+        let pinHash = Self.pinHash(from: pin)
+        let initialConfig = NetworkConfig(
+            networkName: normalizedName,
+            networkID: networkID,
+            createdBy: createdBy,
+            pinHash: pinHash,
+            version: max(1, initialVersion),
+            tree: rootNode
+        )
+
+        networkConfig = initialConfig
+        versionHistory = [initialConfig.version]
+    }
+
+    var currentVersion: Int {
+        withLock { networkConfig.version }
+    }
+
+    var isTreeEmpty: Bool {
+        withLock {
+            let tree = networkConfig.tree
+            return tree.children.isEmpty && tree.claimedBy == nil && tree.label.isEmpty
+        }
+    }
+
+    func node(withID nodeID: String) -> TreeNode? {
+        withLock {
+            Self.findNode(withID: nodeID, in: networkConfig.tree)
+        }
+    }
+
+    @discardableResult
+    func addNode(parentID: String?, label: String) -> TreeNode? {
+        let trimmedLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedLabel.isEmpty else {
+            return nil
+        }
+
+        return withLock {
+            var updatedConfig = networkConfig
+            let targetParentID = parentID ?? updatedConfig.tree.id
+
+            guard let createdNode = Self.insertChild(
+                parentID: targetParentID,
+                label: trimmedLabel,
+                in: &updatedConfig.tree
+            ) else {
+                return nil
+            }
+
+            commitMutation(updatedConfig)
+            return createdNode
+        }
+    }
+
+    @discardableResult
+    func removeNode(nodeID: String) -> Bool {
+        withLock {
+            var updatedConfig = networkConfig
+            let didRemove: Bool
+
+            if updatedConfig.tree.id == nodeID {
+                didRemove = true
+                updatedConfig.tree.claimedBy = nil
+                updatedConfig.tree.label = ""
+                updatedConfig.tree.children = []
+            } else {
+                didRemove = Self.removeNode(nodeID: nodeID, from: &updatedConfig.tree)
+            }
+
+            guard didRemove else {
+                return false
+            }
+
+            commitMutation(updatedConfig)
+            return true
+        }
+    }
+
+    @discardableResult
+    func renameNode(nodeID: String, newLabel: String) -> Bool {
+        withLock {
+            var updatedConfig = networkConfig
+            guard Self.renameNode(nodeID: nodeID, newLabel: newLabel, in: &updatedConfig.tree) else {
+                return false
+            }
+            commitMutation(updatedConfig)
+            return true
+        }
+    }
+
+    @discardableResult
+    func updateNetworkName(_ networkName: String) -> Bool {
+        withLock {
+            let normalized = Self.normalizedNetworkName(networkName)
+            guard normalized != networkConfig.networkName else {
+                return false
+            }
+
+            var updatedConfig = networkConfig
+            updatedConfig.networkName = normalized
+            commitMutation(updatedConfig)
+            return true
+        }
+    }
+
+    @discardableResult
+    func updatePin(_ pin: String?) -> Bool {
+        withLock {
+            let updatedHash = Self.pinHash(from: pin)
+            guard updatedHash != networkConfig.pinHash else {
+                return false
+            }
+
+            var updatedConfig = networkConfig
+            updatedConfig.pinHash = updatedHash
+            commitMutation(updatedConfig)
+            return true
+        }
+    }
+
+    @discardableResult
+    func clearTree() -> Bool {
+        withLock {
+            let tree = networkConfig.tree
+            guard !(tree.children.isEmpty && tree.claimedBy == nil && tree.label.isEmpty) else {
+                return false
+            }
+
+            var updatedConfig = networkConfig
+            updatedConfig.tree.claimedBy = nil
+            updatedConfig.tree.label = ""
+            updatedConfig.tree.children = []
+            commitMutation(updatedConfig)
+            return true
+        }
+    }
+
+    func serializedTreeData(prettyPrinted: Bool = false) -> Data? {
+        withLock {
+            let encoder = Self.jsonEncoder(prettyPrinted: prettyPrinted)
+            return try? encoder.encode(networkConfig.tree)
+        }
+    }
+
+    func serializedTreeJSON(prettyPrinted: Bool = false) -> String? {
+        guard let data = serializedTreeData(prettyPrinted: prettyPrinted) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    func serializedNetworkConfigData(prettyPrinted: Bool = false) -> Data? {
+        withLock {
+            let encoder = Self.jsonEncoder(prettyPrinted: prettyPrinted)
+            return try? encoder.encode(networkConfig)
+        }
+    }
+
+    func serializedNetworkConfigJSON(prettyPrinted: Bool = false) -> String? {
+        guard let data = serializedNetworkConfigData(prettyPrinted: prettyPrinted) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func commitMutation(_ updatedConfig: NetworkConfig) {
+        var next = updatedConfig
+        next.version += 1
+        networkConfig = next
+        versionHistory.append(next.version)
+    }
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+
+    private static func normalizedNetworkName(_ networkName: String) -> String {
+        let trimmed = networkName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Untitled Network" : trimmed
+    }
+
+    private static func pinHash(from pin: String?) -> String? {
+        guard let pin else {
+            return nil
+        }
+
+        let trimmed = pin.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+
+        let digest = SHA256.hash(data: Data(trimmed.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func jsonEncoder(prettyPrinted: Bool) -> JSONEncoder {
+        let encoder = JSONEncoder()
+        var formatting: JSONEncoder.OutputFormatting = [.sortedKeys]
+        if prettyPrinted {
+            formatting.insert(.prettyPrinted)
+        }
+        encoder.outputFormatting = formatting
+        return encoder
+    }
+
+    private static func findNode(withID nodeID: String, in tree: TreeNode) -> TreeNode? {
+        if tree.id == nodeID {
+            return tree
+        }
+
+        for child in tree.children {
+            if let found = findNode(withID: nodeID, in: child) {
+                return found
+            }
+        }
+
+        return nil
+    }
+
+    private static func insertChild(parentID: String, label: String, in tree: inout TreeNode) -> TreeNode? {
+        if tree.id == parentID {
+            let node = TreeNode(
+                id: UUID().uuidString,
+                label: label,
+                claimedBy: nil,
+                children: []
+            )
+            tree.children.append(node)
+            return node
+        }
+
+        for index in tree.children.indices {
+            if let created = insertChild(parentID: parentID, label: label, in: &tree.children[index]) {
+                return created
+            }
+        }
+
+        return nil
+    }
+
+    private static func removeNode(nodeID: String, from tree: inout TreeNode) -> Bool {
+        if let directChildIndex = tree.children.firstIndex(where: { $0.id == nodeID }) {
+            tree.children.remove(at: directChildIndex)
+            return true
+        }
+
+        for index in tree.children.indices {
+            if removeNode(nodeID: nodeID, from: &tree.children[index]) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private static func renameNode(nodeID: String, newLabel: String, in tree: inout TreeNode) -> Bool {
+        if tree.id == nodeID {
+            tree.label = newLabel
+            return true
+        }
+
+        for index in tree.children.indices {
+            if renameNode(nodeID: nodeID, newLabel: newLabel, in: &tree.children[index]) {
+                return true
+            }
+        }
+
+        return false
     }
 }
