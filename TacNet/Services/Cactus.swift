@@ -690,24 +690,34 @@ public struct ModelDownloadConfiguration: Sendable {
     public var expectedModelSizeBytes: Int64
     public var modelDirectoryName: String
     public var modelFileName: String
+    /// In production this MUST stay `true` so that a real download that returns
+    /// an HTTP error body (e.g. a few bytes of "Access denied" text) is rejected
+    /// with `ModelDownloadServiceError.invalidArchive` instead of being moved
+    /// to the sentinel path and later crashing Cactus at load time. Unit tests
+    /// that intentionally script small non-zip mock payloads can flip this to
+    /// `false` to keep their existing fixture-based flow working.
+    public var requiresZipArchive: Bool
 
     public init(
         modelURL: URL,
         expectedModelSizeBytes: Int64,
         modelDirectoryName: String,
-        modelFileName: String
+        modelFileName: String,
+        requiresZipArchive: Bool = true
     ) {
         self.modelURL = modelURL
         self.expectedModelSizeBytes = expectedModelSizeBytes
         self.modelDirectoryName = modelDirectoryName
         self.modelFileName = modelFileName
+        self.requiresZipArchive = requiresZipArchive
     }
 
     public static let live = ModelDownloadConfiguration(
         modelURL: URL(string: "https://huggingface.co/Cactus-Compute/gemma-4-E4B-it/resolve/main/weights/gemma-4-e4b-it-int4-apple.zip")!,
         expectedModelSizeBytes: 6_439_205_261,
         modelDirectoryName: "gemma-4-e4b-it",
-        modelFileName: ".complete"
+        modelFileName: ".complete",
+        requiresZipArchive: true
     )
 }
 
@@ -896,6 +906,11 @@ public enum ModelDownloadServiceError: Error, Equatable {
     case insufficientStorage(requiredBytes: Int64, availableBytes: Int64)
     case interrupted(canResume: Bool)
     case network(underlyingDescription: String)
+    /// The server returned a payload that is not a ZIP archive (no `PK\x03\x04`
+    /// magic bytes) while the service is running in production mode
+    /// (`ModelDownloadConfiguration.requiresZipArchive == true`). The gate is
+    /// left closed and no sentinel file is written.
+    case invalidArchive
 }
 
 public actor ModelDownloadService {
@@ -1063,10 +1078,34 @@ public actor ModelDownloadService {
                     fileManager.createFile(atPath: modelFileURL.path, contents: nil, attributes: nil)
                     NSLog("[ModelDownload] Sentinel written at %@, download complete", modelFileURL.path)
                 } else {
-                    // Non-zip payload — the downloaded file IS the model artifact.
-                    // Move it into the model directory under the configured file name;
-                    // that file itself acts as the sentinel used by
-                    // synchronizeCompletionState().
+                    // Non-zip payload. In production the real HuggingFace URL
+                    // always serves a zip; anything else (e.g. a small HTTP
+                    // error body such as "Access denied") must be rejected
+                    // BEFORE it is promoted to the sentinel path, otherwise
+                    // Cactus would later crash at load time and the user
+                    // would be left with a falsely-green gate.
+                    if configuration.requiresZipArchive {
+                        NSLog(
+                            "[ModelDownload] ❌ Rejecting non-zip payload (%lld bytes) in production mode — no PK magic bytes",
+                            fileSize
+                        )
+                        try? fileManager.removeItem(at: temporaryLocation)
+                        // Also scrub any partially-created model directory so
+                        // synchronizeCompletionState() stays false and the gate
+                        // remains closed.
+                        try? fileManager.removeItem(at: modelFileURL)
+                        try? fileManager.removeItem(at: modelDirectoryURL)
+                        userDefaults.set(false, forKey: completionKey)
+                        userDefaults.removeObject(forKey: resumeDataKey)
+                        lastNonRecoverableError = .invalidArchive
+                        break retryLoop
+                    }
+
+                    // Test-mode / opt-in path: the downloaded file IS the model
+                    // artifact. Move it into the model directory under the
+                    // configured file name; that file itself acts as the
+                    // sentinel used by synchronizeCompletionState(). This path
+                    // is only reachable when `requiresZipArchive == false`.
                     if !fileManager.fileExists(atPath: modelDirectoryURL.path) {
                         try fileManager.createDirectory(at: modelDirectoryURL, withIntermediateDirectories: true)
                     }

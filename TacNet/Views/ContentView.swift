@@ -3333,6 +3333,8 @@ final class AppBootstrapViewModel: ObservableObject {
             return "Download interrupted. Retry to restart the model download."
         case let .network(underlyingDescription):
             return "Model download failed: \(underlyingDescription)"
+        case .invalidArchive:
+            return "Model download failed: server returned a non-archive payload. The model URL may be inaccessible or require authentication."
         }
     }
 }

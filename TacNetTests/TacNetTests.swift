@@ -773,6 +773,101 @@ final class TacNetTests: XCTestCase {
         XCTAssertTrue(gateState)
     }
 
+    func testEnsureModelAvailableRejectsNonZipPayloadInProductionMode() async throws {
+        let sandbox = try makeModelDownloadSandbox()
+        defer { sandbox.cleanup() }
+
+        // 19 bytes of non-zip content ("Access denied\n") mimic a real HTTP
+        // error body that a naïve implementation would happily promote to the
+        // sentinel path — leading to Cactus crashing at load time. In
+        // production mode (requiresZipArchive == true) the service MUST
+        // reject this payload.
+        let accessDeniedURL = sandbox.baseDirectory
+            .appendingPathComponent("access-denied-\(UUID().uuidString).bin")
+        let errorBody = Data("Access denied 123!\n".utf8)
+        XCTAssertEqual(errorBody.count, 19, "Test precondition: simulate 19 bytes of HTTP error body")
+        try errorBody.write(to: accessDeniedURL, options: .atomic)
+
+        let mockSession = MockURLSessionDownloadClient(
+            scriptedResponses: [
+                .init(
+                    progressEvents: [(19, 19)],
+                    result: .success(accessDeniedURL)
+                )
+            ]
+        )
+
+        let service = makeModelDownloadService(
+            sandbox: sandbox,
+            downloader: mockSession,
+            availableStorageBytes: 20_000_000_000,
+            requiresZipArchive: true
+        )
+
+        do {
+            _ = try await service.ensureModelAvailable()
+            XCTFail("Expected invalidArchive error when a non-zip payload is served in production mode")
+        } catch let error as ModelDownloadServiceError {
+            XCTAssertEqual(error, .invalidArchive, "Non-zip payload in production mode must throw .invalidArchive")
+        }
+
+        let gateStillLocked = await service.canUseTacticalFeatures()
+        XCTAssertFalse(gateStillLocked, "Gate must remain closed after a rejected non-zip payload")
+        let reportedDirectoryPath = await service.downloadedModelDirectoryPath()
+        XCTAssertNil(
+            reportedDirectoryPath,
+            "No downloaded model path should be reported after a rejected non-zip payload"
+        )
+
+        let modelDirectory = sandbox.appSupportDirectory
+            .appendingPathComponent(makeModelDownloadConfiguration().modelDirectoryName, isDirectory: true)
+        let sentinelURL = modelDirectory.appendingPathComponent(makeModelDownloadConfiguration().modelFileName, isDirectory: false)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: sentinelURL.path),
+            "Sentinel file must NOT exist after a rejected non-zip payload"
+        )
+    }
+
+    func testEnsureModelAvailableAcceptsNonZipPayloadInTestMode() async throws {
+        let sandbox = try makeModelDownloadSandbox()
+        defer { sandbox.cleanup() }
+
+        // Mirror the fixture pattern used by the other existing model-download
+        // tests: a tiny non-zip "model" file. In test mode
+        // (requiresZipArchive == false) this path remains supported so the
+        // existing mock-based coverage keeps working.
+        let temporaryModelFile = try makeTemporaryModelFile(in: sandbox.baseDirectory)
+        let mockSession = MockURLSessionDownloadClient(
+            scriptedResponses: [
+                .init(
+                    progressEvents: [(500, 1_000), (1_000, 1_000)],
+                    result: .success(temporaryModelFile)
+                )
+            ]
+        )
+
+        let service = makeModelDownloadService(
+            sandbox: sandbox,
+            downloader: mockSession,
+            availableStorageBytes: 20_000_000_000,
+            requiresZipArchive: false
+        )
+
+        _ = try await service.ensureModelAvailable()
+
+        let gateUnlocked = await service.canUseTacticalFeatures()
+        XCTAssertTrue(gateUnlocked, "Test-mode non-zip payload should still unlock the gate")
+
+        let resolvedDirectoryPath = await service.downloadedModelDirectoryPath()
+        let directoryPath = try XCTUnwrap(resolvedDirectoryPath)
+        let sentinelURL = URL(fileURLWithPath: directoryPath)
+            .appendingPathComponent(makeModelDownloadConfiguration().modelFileName, isDirectory: false)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: sentinelURL.path),
+            "Test-mode non-zip install should persist the sentinel file"
+        )
+    }
+
     func testCactusModelInitializationIsGatedUntilDownloadCompletesThenUsesDownloadedPath() async throws {
         let sandbox = try makeModelDownloadSandbox()
         defer { sandbox.cleanup() }
@@ -4366,22 +4461,30 @@ final class TacNetTests: XCTestCase {
         return fileURL
     }
 
-    private func makeModelDownloadConfiguration() -> ModelDownloadConfiguration {
+    private func makeModelDownloadConfiguration(
+        requiresZipArchive: Bool = false
+    ) -> ModelDownloadConfiguration {
+        // Tests default to `requiresZipArchive: false` because the existing
+        // `MockURLSessionDownloadClient` emits tiny non-zip byte blobs as the
+        // "downloaded" artifact. Production (`.live`) keeps the default `true`
+        // so real HTTP error bodies never reach the sentinel path.
         ModelDownloadConfiguration(
             modelURL: URL(string: "https://huggingface.co/Cactus-Compute/gemma-4-e4b-int4/resolve/main/gemma-4-e4b-int4.bin")!,
             expectedModelSizeBytes: 6_700_000_000,
             modelDirectoryName: "gemma-4-e4b-int4",
-            modelFileName: "gemma-4-e4b-int4.bin"
+            modelFileName: "gemma-4-e4b-int4.bin",
+            requiresZipArchive: requiresZipArchive
         )
     }
 
     private func makeModelDownloadService(
         sandbox: ModelDownloadSandbox,
         downloader: URLSessionDownloading,
-        availableStorageBytes: Int64
+        availableStorageBytes: Int64,
+        requiresZipArchive: Bool = false
     ) -> ModelDownloadService {
         ModelDownloadService(
-            configuration: makeModelDownloadConfiguration(),
+            configuration: makeModelDownloadConfiguration(requiresZipArchive: requiresZipArchive),
             downloader: downloader,
             storageChecker: MockStorageChecker(availableBytes: availableStorageBytes),
             fileManager: FileManager.default,
