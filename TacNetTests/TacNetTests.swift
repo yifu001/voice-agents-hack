@@ -267,4 +267,126 @@ final class TacNetTests: XCTestCase {
         let payload = try XCTUnwrap(json["payload"] as? [String: Any])
         XCTAssertNotNil(payload["location"], "location field must be present even without live GPS")
     }
+
+    func testTreeHelpersParentLookupForRootLeafIntermediateAndMissing() {
+        let tree = makeFixtureTree()
+
+        XCTAssertEqual(TreeHelpers.parent(of: "alpha", in: tree)?.id, "root")
+        XCTAssertEqual(TreeHelpers.parent(of: "alpha-1", in: tree)?.id, "alpha")
+        XCTAssertNil(TreeHelpers.parent(of: "root", in: tree))
+        XCTAssertNil(TreeHelpers.parent(of: "missing", in: tree))
+    }
+
+    func testTreeHelpersSiblingsLookupExcludesSelfAndHandlesRootSingleChildAndMissing() {
+        let tree = makeFixtureTree()
+
+        XCTAssertEqual(TreeHelpers.siblings(of: "alpha-1", in: tree).map(\.id), ["alpha-2"])
+        XCTAssertEqual(TreeHelpers.siblings(of: "alpha", in: tree).map(\.id), ["bravo", "charlie"])
+        XCTAssertEqual(TreeHelpers.siblings(of: "charlie-1", in: tree).count, 0, "Single child should have no siblings")
+        XCTAssertEqual(TreeHelpers.siblings(of: "root", in: tree).count, 0, "Root should have no siblings")
+        XCTAssertEqual(TreeHelpers.siblings(of: "missing", in: tree).count, 0, "Missing node should produce no siblings")
+    }
+
+    func testTreeHelpersChildrenLookupForRootIntermediateLeafAndMissing() {
+        let tree = makeFixtureTree()
+
+        XCTAssertEqual(TreeHelpers.children(of: "root", in: tree).map(\.id), ["alpha", "bravo", "charlie"])
+        XCTAssertEqual(TreeHelpers.children(of: "alpha", in: tree).map(\.id), ["alpha-1", "alpha-2"])
+        XCTAssertEqual(TreeHelpers.children(of: "bravo", in: tree).count, 0, "Leaf should have no children")
+        XCTAssertEqual(TreeHelpers.children(of: "missing", in: tree).count, 0, "Missing node should produce no children")
+    }
+
+    func testTreeHelpersLevelLookupForRootIntermediateLeafAndMissing() {
+        let tree = makeFixtureTree()
+
+        XCTAssertEqual(TreeHelpers.level(of: "root", in: tree), 0)
+        XCTAssertEqual(TreeHelpers.level(of: "alpha", in: tree), 1)
+        XCTAssertEqual(TreeHelpers.level(of: "alpha-1", in: tree), 2)
+        XCTAssertNil(TreeHelpers.level(of: "missing", in: tree))
+    }
+
+    func testMessageDeduplicatorReturnsFalseForFirstSeenAndTrueForReseen() {
+        let deduplicator = MessageDeduplicator(capacity: 50_000)
+        let id = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+
+        XCTAssertFalse(deduplicator.isDuplicate(messageId: id))
+        XCTAssertTrue(deduplicator.isDuplicate(messageId: id))
+    }
+
+    func testMessageDeduplicatorDifferentUUIDsAreNotDuplicates() {
+        let deduplicator = MessageDeduplicator(capacity: 50_000)
+        let idA = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        let idB = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
+
+        XCTAssertFalse(deduplicator.isDuplicate(messageId: idA))
+        XCTAssertFalse(deduplicator.isDuplicate(messageId: idB))
+    }
+
+    func testMessageDeduplicatorStress10kEntriesMaintainsCorrectness() {
+        let deduplicator = MessageDeduplicator(capacity: 50_000)
+        let ids = (0..<10_000).map(deterministicUUID(from:))
+
+        ids.forEach { id in
+            XCTAssertFalse(deduplicator.isDuplicate(messageId: id), "First-seen UUID must not be duplicate")
+        }
+
+        ids.forEach { id in
+            XCTAssertTrue(deduplicator.isDuplicate(messageId: id), "Re-seen UUID must be duplicate")
+        }
+    }
+
+    func testMessageDeduplicatorBoundedGrowthAndRecentEntriesRemainTracked() {
+        let capacity = 1_000
+        let deduplicator = MessageDeduplicator(capacity: capacity)
+        let ids = (0..<(capacity * 2)).map(deterministicUUID(from:))
+
+        ids.forEach { id in
+            XCTAssertFalse(deduplicator.isDuplicate(messageId: id))
+        }
+
+        XCTAssertEqual(deduplicator.trackedCount, capacity, "Seen-set size should remain bounded by capacity")
+
+        ids.suffix(1_000).forEach { id in
+            XCTAssertTrue(deduplicator.isDuplicate(messageId: id), "Most-recent IDs should still be tracked")
+        }
+
+        XCTAssertFalse(deduplicator.isDuplicate(messageId: ids[0]), "Oldest entries should be evicted after overflow")
+    }
+
+    private func makeFixtureTree() -> TreeNode {
+        TreeNode(
+            id: "root",
+            label: "Root",
+            claimedBy: nil,
+            children: [
+                TreeNode(
+                    id: "alpha",
+                    label: "Alpha",
+                    claimedBy: nil,
+                    children: [
+                        TreeNode(id: "alpha-1", label: "Alpha 1", claimedBy: nil, children: []),
+                        TreeNode(id: "alpha-2", label: "Alpha 2", claimedBy: nil, children: [])
+                    ]
+                ),
+                TreeNode(
+                    id: "bravo",
+                    label: "Bravo",
+                    claimedBy: nil,
+                    children: []
+                ),
+                TreeNode(
+                    id: "charlie",
+                    label: "Charlie",
+                    claimedBy: nil,
+                    children: [
+                        TreeNode(id: "charlie-1", label: "Charlie 1", claimedBy: nil, children: [])
+                    ]
+                )
+            ]
+        )
+    }
+
+    private func deterministicUUID(from value: Int) -> UUID {
+        UUID(uuidString: String(format: "00000000-0000-0000-0000-%012X", value))!
+    }
 }

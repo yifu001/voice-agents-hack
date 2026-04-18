@@ -222,3 +222,101 @@ struct NodeIdentityStore {
         defaults.removeObject(forKey: storageKey)
     }
 }
+
+enum TreeHelpers {
+    static func parent(of nodeID: String, in tree: TreeNode) -> TreeNode? {
+        guard let path = path(to: nodeID, in: tree), path.count > 1 else {
+            return nil
+        }
+        return path[path.count - 2]
+    }
+
+    static func siblings(of nodeID: String, in tree: TreeNode) -> [TreeNode] {
+        guard let parentNode = parent(of: nodeID, in: tree) else {
+            return []
+        }
+        return parentNode.children.filter { $0.id != nodeID }
+    }
+
+    static func children(of nodeID: String, in tree: TreeNode) -> [TreeNode] {
+        findNode(withID: nodeID, in: tree)?.children ?? []
+    }
+
+    static func level(of nodeID: String, in tree: TreeNode) -> Int? {
+        guard let path = path(to: nodeID, in: tree) else {
+            return nil
+        }
+        return path.count - 1
+    }
+
+    private static func path(to nodeID: String, in tree: TreeNode) -> [TreeNode]? {
+        if tree.id == nodeID {
+            return [tree]
+        }
+
+        for child in tree.children {
+            if let childPath = path(to: nodeID, in: child) {
+                return [tree] + childPath
+            }
+        }
+
+        return nil
+    }
+
+    private static func findNode(withID nodeID: String, in tree: TreeNode) -> TreeNode? {
+        if tree.id == nodeID {
+            return tree
+        }
+
+        for child in tree.children {
+            if let found = findNode(withID: nodeID, in: child) {
+                return found
+            }
+        }
+
+        return nil
+    }
+}
+
+final class MessageDeduplicator: @unchecked Sendable {
+    private let capacity: Int
+    private var seenSet: Set<UUID>
+    private var ringBuffer: [UUID]
+    private var nextEvictionIndex: Int
+    private let lock = NSLock()
+
+    init(capacity: Int = 50_000) {
+        self.capacity = max(1, capacity)
+        self.seenSet = Set(minimumCapacity: self.capacity)
+        self.ringBuffer = []
+        self.ringBuffer.reserveCapacity(self.capacity)
+        self.nextEvictionIndex = 0
+    }
+
+    func isDuplicate(messageId: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if seenSet.contains(messageId) {
+            return true
+        }
+
+        if ringBuffer.count < capacity {
+            ringBuffer.append(messageId)
+        } else {
+            let evicted = ringBuffer[nextEvictionIndex]
+            seenSet.remove(evicted)
+            ringBuffer[nextEvictionIndex] = messageId
+            nextEvictionIndex = (nextEvictionIndex + 1) % capacity
+        }
+
+        seenSet.insert(messageId)
+        return false
+    }
+
+    var trackedCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return seenSet.count
+    }
+}
