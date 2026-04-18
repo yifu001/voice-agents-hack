@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import CryptoKit
+import SwiftData
 
 struct TreeNode: Codable, Equatable, Sendable {
     var id: String
@@ -405,6 +406,213 @@ struct NodeIdentityStore {
 
     func clear() {
         defaults.removeObject(forKey: storageKey)
+    }
+}
+
+struct AfterActionReviewMessage: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let senderID: String
+    let senderRole: String
+    let timestamp: Date
+    let type: Message.MessageType
+    let body: String
+    let latitude: Double
+    let longitude: Double
+    let accuracy: Double
+    let isFallbackLocation: Bool
+}
+
+@MainActor
+protocol AfterActionReviewPersisting: AnyObject {
+    func persist(_ message: Message)
+    func allMessages() -> [AfterActionReviewMessage]
+    func search(query: String) -> [AfterActionReviewMessage]
+    func purgeAll()
+}
+
+@MainActor
+final class InMemoryAfterActionReviewStore: AfterActionReviewPersisting {
+    private var recordsByID: [UUID: AfterActionReviewMessage] = [:]
+
+    func persist(_ message: Message) {
+        guard let record = AfterActionReviewRecordFactory.make(from: message) else {
+            return
+        }
+        recordsByID[record.id] = record
+    }
+
+    func allMessages() -> [AfterActionReviewMessage] {
+        recordsByID.values.sorted(by: Self.newestFirst)
+    }
+
+    func search(query: String) -> [AfterActionReviewMessage] {
+        let normalizedQuery = Self.normalized(query)
+        let source = allMessages()
+        guard !normalizedQuery.isEmpty else {
+            return source
+        }
+
+        return source.filter { record in
+            Self.searchableText(for: record)
+                .range(of: normalizedQuery, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        }
+    }
+
+    func purgeAll() {
+        recordsByID.removeAll()
+    }
+
+    private static func searchableText(for record: AfterActionReviewMessage) -> String {
+        "\(record.body)\n\(record.senderRole)\n\(record.senderID)\n\(record.type.rawValue)"
+    }
+
+    private static func normalized(_ query: String) -> String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func newestFirst(_ lhs: AfterActionReviewMessage, _ rhs: AfterActionReviewMessage) -> Bool {
+        lhs.timestamp > rhs.timestamp
+    }
+}
+
+@available(iOS 17.0, *)
+@Model
+final class PersistedAfterActionReviewMessage {
+    @Attribute(.unique) var id: UUID
+    var senderID: String
+    var senderRole: String
+    var timestamp: Date
+    var typeRawValue: String
+    var body: String
+    var latitude: Double
+    var longitude: Double
+    var accuracy: Double
+    var isFallbackLocation: Bool
+
+    init(from record: AfterActionReviewMessage) {
+        id = record.id
+        senderID = record.senderID
+        senderRole = record.senderRole
+        timestamp = record.timestamp
+        typeRawValue = record.type.rawValue
+        body = record.body
+        latitude = record.latitude
+        longitude = record.longitude
+        accuracy = record.accuracy
+        isFallbackLocation = record.isFallbackLocation
+    }
+
+    var asRecord: AfterActionReviewMessage {
+        let resolvedType = Message.MessageType(rawValue: typeRawValue) ?? .broadcast
+        return AfterActionReviewMessage(
+            id: id,
+            senderID: senderID,
+            senderRole: senderRole,
+            timestamp: timestamp,
+            type: resolvedType,
+            body: body,
+            latitude: latitude,
+            longitude: longitude,
+            accuracy: accuracy,
+            isFallbackLocation: isFallbackLocation
+        )
+    }
+}
+
+@available(iOS 17.0, *)
+@MainActor
+final class SwiftDataAfterActionReviewStore: AfterActionReviewPersisting {
+    private let modelContainer: ModelContainer
+    private let modelContext: ModelContext
+
+    init(isStoredInMemoryOnly: Bool = false) throws {
+        let configuration = ModelConfiguration(isStoredInMemoryOnly: isStoredInMemoryOnly)
+        modelContainer = try ModelContainer(
+            for: PersistedAfterActionReviewMessage.self,
+            configurations: configuration
+        )
+        modelContext = ModelContext(modelContainer)
+    }
+
+    func persist(_ message: Message) {
+        guard let record = AfterActionReviewRecordFactory.make(from: message) else {
+            return
+        }
+
+        let recordID = record.id
+        let existsDescriptor = FetchDescriptor<PersistedAfterActionReviewMessage>(
+            predicate: #Predicate { stored in
+                stored.id == recordID
+            }
+        )
+        if let existing = try? modelContext.fetch(existsDescriptor),
+           !existing.isEmpty {
+            return
+        }
+
+        modelContext.insert(PersistedAfterActionReviewMessage(from: record))
+        try? modelContext.save()
+    }
+
+    func allMessages() -> [AfterActionReviewMessage] {
+        let descriptor = FetchDescriptor<PersistedAfterActionReviewMessage>(
+            sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+        )
+        let stored = (try? modelContext.fetch(descriptor)) ?? []
+        return stored.map(\.asRecord)
+    }
+
+    func search(query: String) -> [AfterActionReviewMessage] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = allMessages()
+        guard !normalizedQuery.isEmpty else {
+            return source
+        }
+
+        return source.filter { record in
+            let searchable = "\(record.body)\n\(record.senderRole)\n\(record.senderID)\n\(record.type.rawValue)"
+            return searchable.range(
+                of: normalizedQuery,
+                options: [.caseInsensitive, .diacriticInsensitive]
+            ) != nil
+        }
+    }
+
+    func purgeAll() {
+        let descriptor = FetchDescriptor<PersistedAfterActionReviewMessage>()
+        guard let stored = try? modelContext.fetch(descriptor) else {
+            return
+        }
+        stored.forEach(modelContext.delete)
+        try? modelContext.save()
+    }
+}
+
+private enum AfterActionReviewRecordFactory {
+    static func make(from message: Message) -> AfterActionReviewMessage? {
+        let body: String
+
+        switch message.type {
+        case .broadcast:
+            body = message.payload.transcript?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        case .compaction:
+            body = message.payload.summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        default:
+            return nil
+        }
+
+        return AfterActionReviewMessage(
+            id: message.id,
+            senderID: message.senderID,
+            senderRole: message.senderRole,
+            timestamp: message.timestamp,
+            type: message.type,
+            body: body,
+            latitude: message.payload.location.lat,
+            longitude: message.payload.location.lon,
+            accuracy: message.payload.location.accuracy,
+            isFallbackLocation: message.payload.location.isFallback
+        )
     }
 }
 

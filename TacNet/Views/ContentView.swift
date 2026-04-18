@@ -82,6 +82,7 @@ struct ContentView: View {
                     treeViewModel: appNetworkCoordinator.treeViewModel,
                     dataFlowViewModel: appNetworkCoordinator.dataFlowViewModel,
                     settingsViewModel: appNetworkCoordinator.settingsViewModel,
+                    afterActionReviewViewModel: appNetworkCoordinator.afterActionReviewViewModel,
                     onBackToRoleSelection: {
                         onboardingRoute = .roleSelection
                     }
@@ -873,6 +874,7 @@ private struct TacNetTabShellView: View {
     @ObservedObject var treeViewModel: TreeViewModel
     @ObservedObject var dataFlowViewModel: DataFlowViewModel
     @ObservedObject var settingsViewModel: SettingsViewModel
+    @ObservedObject var afterActionReviewViewModel: AfterActionReviewViewModel
     let onBackToRoleSelection: () -> Void
 
     @State private var selectedTab: TacNetTab = .main
@@ -902,6 +904,7 @@ private struct TacNetTabShellView: View {
 
             SettingsView(
                 viewModel: settingsViewModel,
+                afterActionReviewViewModel: afterActionReviewViewModel,
                 onReleaseRole: onBackToRoleSelection
             )
                 .tabItem {
@@ -1823,8 +1826,37 @@ final class SettingsViewModel: ObservableObject {
     }
 }
 
+@MainActor
+final class AfterActionReviewViewModel: ObservableObject {
+    @Published var query: String = "" {
+        didSet {
+            refresh()
+        }
+    }
+    @Published private(set) var results: [AfterActionReviewMessage] = []
+    @Published private(set) var totalMessageCount: Int = 0
+
+    private let store: any AfterActionReviewPersisting
+
+    init(store: any AfterActionReviewPersisting) {
+        self.store = store
+        refresh()
+    }
+
+    func record(_ message: Message) {
+        store.persist(message)
+        refresh()
+    }
+
+    func refresh() {
+        results = store.search(query: query)
+        totalMessageCount = store.allMessages().count
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var viewModel: SettingsViewModel
+    @ObservedObject var afterActionReviewViewModel: AfterActionReviewViewModel
     let onReleaseRole: () -> Void
 
     @State private var isShowingTreeEditor = false
@@ -1844,6 +1876,8 @@ struct SettingsView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
+
+                afterActionReviewSection
 
                 if let statusMessage = viewModel.statusMessage {
                     Text(statusMessage)
@@ -1913,6 +1947,38 @@ struct SettingsView: View {
                     .disabled(!viewModel.canPromoteSelectedNode)
                     .accessibilityIdentifier("tacnet.settings.promoteButton")
                 }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var afterActionReviewSection: some View {
+        GroupBox("After-Action Review") {
+            VStack(alignment: .leading, spacing: 10) {
+                NavigationLink {
+                    AfterActionReviewView(viewModel: afterActionReviewViewModel)
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Search Message History")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text("\(afterActionReviewViewModel.totalMessageCount) stored messages")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("tacnet.settings.afterActionReviewLink")
+
+                Text("Search BROADCAST transcripts and COMPACTION summaries with sender, timestamp, type, and GPS metadata.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -2008,6 +2074,122 @@ private struct SettingsTreeEditorView: View {
                 }
             }
         }
+    }
+}
+
+private struct AfterActionReviewView: View {
+    @ObservedObject var viewModel: AfterActionReviewViewModel
+
+    private static let timestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .medium
+        return formatter
+    }()
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                TextField("Search transcripts and summaries", text: $viewModel.query)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+
+                Text(summaryText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                if viewModel.results.isEmpty {
+                    Text("No matching messages found.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.secondary.opacity(0.10))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                } else {
+                    ForEach(viewModel.results) { result in
+                        AfterActionReviewResultRow(
+                            result: result,
+                            timestampFormatter: Self.timestampFormatter
+                        )
+                    }
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 12)
+        }
+        .navigationTitle("After-Action Review")
+        .onAppear {
+            viewModel.refresh()
+        }
+        .accessibilityIdentifier("tacnet.afterActionReview.root")
+    }
+
+    private var summaryText: String {
+        let trimmedQuery = viewModel.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedQuery.isEmpty {
+            return "\(viewModel.totalMessageCount) total stored messages."
+        }
+        return "\(viewModel.results.count) match(es) for “\(trimmedQuery)”."
+    }
+}
+
+private struct AfterActionReviewResultRow: View {
+    let result: AfterActionReviewMessage
+    let timestampFormatter: DateFormatter
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(result.senderRole.isEmpty ? result.senderID : result.senderRole)
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 8)
+                Text(timestampFormatter.string(from: result.timestamp))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                Text(result.type.rawValue)
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(result.type == .broadcast ? .blue : .orange)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        (result.type == .broadcast ? Color.blue : Color.orange)
+                            .opacity(0.18)
+                    )
+                    .clipShape(Capsule())
+                Text(result.senderID)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(result.body.isEmpty ? "(no message body)" : result.body)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(locationText)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .background(Color.secondary.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var locationText: String {
+        if result.isFallbackLocation {
+            return "GPS unavailable"
+        }
+        return String(
+            format: "GPS %.5f, %.5f (±%.1fm)",
+            result.latitude,
+            result.longitude,
+            result.accuracy
+        )
     }
 }
 
@@ -2216,6 +2398,7 @@ final class MainViewModel: ObservableObject {
     private let messageRouter: MessageRouter
     private let audioService: AudioService
     private var seenMessageIDs: Set<UUID> = []
+    var onBroadcastPublished: ((Message) -> Void)?
 
     init(
         meshService: BluetoothMeshService,
@@ -2411,6 +2594,7 @@ final class MainViewModel: ObservableObject {
             in: context.config.tree
         )
         meshService.publish(outboundMessage)
+        onBroadcastPublished?(outboundMessage)
     }
 
     private struct LocalContext {
@@ -2490,6 +2674,7 @@ final class AppNetworkCoordinator: ObservableObject {
     let treeViewModel: TreeViewModel
     let dataFlowViewModel: DataFlowViewModel
     let settingsViewModel: SettingsViewModel
+    let afterActionReviewViewModel: AfterActionReviewViewModel
 
     private var compactionEngine: CompactionEngine?
     private var compactionEngineNodeID: String?
@@ -2501,6 +2686,15 @@ final class AppNetworkCoordinator: ObservableObject {
     ) {
         self.localDeviceID = localDeviceID
         self.meshService = meshService
+
+        let reviewStore: any AfterActionReviewPersisting
+        if #available(iOS 17.0, *) {
+            reviewStore = (try? SwiftDataAfterActionReviewStore()) ?? InMemoryAfterActionReviewStore()
+        } else {
+            reviewStore = InMemoryAfterActionReviewStore()
+        }
+        afterActionReviewViewModel = AfterActionReviewViewModel(store: reviewStore)
+
         discoveryService = NetworkDiscoveryService(meshService: meshService)
         treeSyncService = TreeSyncService(meshService: meshService)
         roleClaimService = RoleClaimService(
@@ -2519,6 +2713,9 @@ final class AppNetworkCoordinator: ObservableObject {
         )
         dataFlowViewModel = DataFlowViewModel()
         settingsViewModel = SettingsViewModel(roleClaimService: roleClaimService)
+        mainViewModel.onBroadcastPublished = { [weak self] message in
+            self?.afterActionReviewViewModel.record(message)
+        }
 
         roleClaimService.$networkConfig
             .combineLatest(roleClaimService.$activeClaimNodeID)
@@ -2538,6 +2735,7 @@ final class AppNetworkCoordinator: ObservableObject {
 
         meshService.onMessageReceived = { [weak self] message in
             Task { @MainActor in
+                self?.afterActionReviewViewModel.record(message)
                 self?.roleClaimService.handleIncomingMessage(message)
                 self?.mainViewModel.handleIncomingMessage(message)
                 self?.treeViewModel.handleIncomingMessage(message)
@@ -2618,6 +2816,7 @@ final class AppNetworkCoordinator: ObservableObject {
                         return
                     }
                     self.dataFlowViewModel.handleOutgoingCompaction(emission)
+                    self.afterActionReviewViewModel.record(emission.message)
                     self.meshService.publish(emission.message)
                 }
             }

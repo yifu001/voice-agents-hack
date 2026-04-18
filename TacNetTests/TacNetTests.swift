@@ -1710,6 +1710,195 @@ final class TacNetTests: XCTestCase {
         XCTAssertTrue(transport.sentPackets.isEmpty, "No message should be sent while disconnected")
     }
 
+    @MainActor
+    func testAfterActionReviewStoreRoundTripPersistsBroadcastAndCompactionMetadata() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("SwiftData requires iOS 17+")
+        }
+
+        let store = try SwiftDataAfterActionReviewStore(isStoredInMemoryOnly: true)
+        store.purgeAll()
+
+        let broadcast = Message.make(
+            id: UUID(uuidString: "9F000000-1111-2222-3333-444444444444")!,
+            type: .broadcast,
+            senderID: "alpha-1-device",
+            senderRole: "Alpha 1",
+            parentID: "alpha",
+            treeLevel: 2,
+            ttl: 4,
+            encrypted: false,
+            latitude: 34.1201,
+            longitude: -117.3210,
+            accuracy: 3.4,
+            transcript: "Contact observed near bridge checkpoint.",
+            timestamp: Date(timeIntervalSince1970: 1_701_200_000)
+        )
+        let compaction = Message.make(
+            id: UUID(uuidString: "AF000000-1111-2222-3333-444444444444")!,
+            type: .compaction,
+            senderID: "alpha-lead-device",
+            senderRole: "Alpha Lead",
+            parentID: "root",
+            treeLevel: 1,
+            ttl: 4,
+            encrypted: false,
+            latitude: 34.1210,
+            longitude: -117.3200,
+            accuracy: 4.9,
+            summary: "Bridge checkpoint secured, one casualty evacuated.",
+            timestamp: Date(timeIntervalSince1970: 1_701_200_100)
+        )
+
+        store.persist(broadcast)
+        store.persist(compaction)
+
+        let stored = store.allMessages()
+        XCTAssertEqual(stored.count, 2)
+        XCTAssertEqual(stored.map(\.id), [compaction.id, broadcast.id], "Newest messages should appear first")
+
+        let newest = try XCTUnwrap(stored.first)
+        XCTAssertEqual(newest.senderRole, "Alpha Lead")
+        XCTAssertEqual(newest.type, .compaction)
+        XCTAssertEqual(newest.body, "Bridge checkpoint secured, one casualty evacuated.")
+        XCTAssertEqual(newest.latitude, 34.1210, accuracy: 0.000001)
+        XCTAssertEqual(newest.longitude, -117.3200, accuracy: 0.000001)
+        XCTAssertEqual(newest.accuracy, 4.9, accuracy: 0.000001)
+    }
+
+    @MainActor
+    func testAfterActionReviewStoreSurvivesStoreReinitialization() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("SwiftData requires iOS 17+")
+        }
+
+        let firstStore = try SwiftDataAfterActionReviewStore(isStoredInMemoryOnly: false)
+        firstStore.purgeAll()
+
+        let persistedMessage = Message.make(
+            id: UUID(uuidString: "BF000000-1111-2222-3333-444444444444")!,
+            type: .broadcast,
+            senderID: "bravo-device",
+            senderRole: "Bravo",
+            parentID: "root",
+            treeLevel: 1,
+            ttl: 4,
+            encrypted: false,
+            latitude: 35.001,
+            longitude: -118.001,
+            accuracy: 6.0,
+            transcript: "Emergency call at north ridge.",
+            timestamp: Date(timeIntervalSince1970: 1_701_210_000)
+        )
+        firstStore.persist(persistedMessage)
+        XCTAssertEqual(firstStore.search(query: "emergency").count, 1)
+
+        let relaunchedStore = try SwiftDataAfterActionReviewStore(isStoredInMemoryOnly: false)
+        let resultsAfterRelaunch = relaunchedStore.search(query: "EMERGENCY")
+
+        XCTAssertEqual(resultsAfterRelaunch.count, 1, "Message should survive store recreation")
+        XCTAssertEqual(resultsAfterRelaunch.first?.id, persistedMessage.id)
+        XCTAssertEqual(resultsAfterRelaunch.first?.senderRole, "Bravo")
+
+        relaunchedStore.purgeAll()
+    }
+
+    @MainActor
+    func testAfterActionReviewStoreSearchIsCaseInsensitiveAcrossBroadcastAndCompaction() throws {
+        guard #available(iOS 17.0, *) else {
+            throw XCTSkip("SwiftData requires iOS 17+")
+        }
+
+        let store = try SwiftDataAfterActionReviewStore(isStoredInMemoryOnly: true)
+        store.purgeAll()
+
+        store.persist(
+            Message.make(
+                id: UUID(uuidString: "CF000000-1111-2222-3333-444444444444")!,
+                type: .broadcast,
+                senderID: "charlie-1-device",
+                senderRole: "Charlie 1",
+                parentID: "charlie",
+                treeLevel: 2,
+                ttl: 4,
+                encrypted: false,
+                latitude: nil,
+                longitude: nil,
+                accuracy: nil,
+                transcript: "Need CASUALTY evacuation at checkpoint."
+            )
+        )
+        store.persist(
+            Message.make(
+                id: UUID(uuidString: "DF000000-1111-2222-3333-444444444444")!,
+                type: .compaction,
+                senderID: "charlie-lead-device",
+                senderRole: "Charlie Lead",
+                parentID: "root",
+                treeLevel: 1,
+                ttl: 4,
+                encrypted: false,
+                latitude: 36.1,
+                longitude: -119.4,
+                accuracy: 7.2,
+                summary: "Casualty stabilized and extraction route established."
+            )
+        )
+        store.persist(
+            Message.make(
+                id: UUID(uuidString: "EF000000-1111-2222-3333-444444444444")!,
+                type: .broadcast,
+                senderID: "delta-device",
+                senderRole: "Delta",
+                parentID: "root",
+                treeLevel: 1,
+                ttl: 4,
+                encrypted: false,
+                latitude: nil,
+                longitude: nil,
+                accuracy: nil,
+                transcript: "Routine status green."
+            )
+        )
+
+        let matches = store.search(query: "casualty")
+        XCTAssertEqual(matches.count, 2)
+        XCTAssertEqual(Set(matches.map(\.type)), [.broadcast, .compaction])
+        XCTAssertTrue(matches.allSatisfy { !$0.senderRole.isEmpty })
+        XCTAssertTrue(matches.allSatisfy { !$0.body.isEmpty })
+        XCTAssertTrue(matches.allSatisfy { $0.timestamp.timeIntervalSince1970 > 0 })
+        XCTAssertTrue(store.search(query: "nonsense-does-not-exist").isEmpty)
+    }
+
+    @MainActor
+    func testAfterActionReviewViewModelSearchUpdatesResultsWithMetadata() {
+        let store = InMemoryAfterActionReviewStore()
+        let viewModel = AfterActionReviewViewModel(store: store)
+
+        viewModel.record(
+            Message.make(
+                id: UUID(uuidString: "F1000000-1111-2222-3333-444444444444")!,
+                type: .broadcast,
+                senderID: "echo-device",
+                senderRole: "Echo",
+                parentID: "root",
+                treeLevel: 1,
+                ttl: 4,
+                encrypted: false,
+                latitude: 33.0,
+                longitude: -117.0,
+                accuracy: 5.0,
+                transcript: "Checkpoint clear and route open."
+            )
+        )
+        viewModel.query = "route"
+
+        XCTAssertEqual(viewModel.results.count, 1)
+        XCTAssertEqual(viewModel.results.first?.senderRole, "Echo")
+        XCTAssertEqual(viewModel.results.first?.type, .broadcast)
+        XCTAssertEqual(viewModel.totalMessageCount, 1)
+    }
+
     func testTabNavigationDefinesAllFourTabsInExpectedOrder() {
         XCTAssertEqual(TacNetTab.allCases.count, 4)
         XCTAssertEqual(TacNetTab.allCases.map(\.title), ["Main", "Tree View", "Data Flow", "Settings"])
