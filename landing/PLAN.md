@@ -739,44 +739,56 @@ Sized for small team. Phases are sequential; each ends with a deployable checkpo
 - [x] `npm run build` — green, 102 KB first-load JS, 4/4 static pages.
 - [ ] Vercel preview URL — deferred (needs user auth).
 
-### Phase 2 — Shell components *(½ day)*
-- `Nav` with scroll-contract.
-- `SectionFrame`, `Accordion`, `CodeWindow`, `MonoStat`, `BracketedButton`, `PulsingDot`, `GridBackground`, `NoiseOverlay` in `components/primitives/`.
-- Static copy for hero and data band wired in.
-- Deploy checkpoint.
+### Phase 2 — Shell components — **DONE**
+- [x] `Nav` with floating/contracting chrome (aliaskit lift). Mobile hamburger overlay.
+- [x] `SectionFrame`, `Accordion` + `AccordionGroup`, `CodeWindow` with stacked-depth + `Token` tokenizer, `MonoStat`, `BracketedButton` (primary/ghost/link), `PulsingDot`, `GridBackground`.
+- [x] `lib/motion.ts` with `useReducedMotion` hook.
+- [x] `tsconfig.json` path alias `@/*` so content imports stay clean.
 
-### Phase 3 — Content sections *(1 day)*
-- Problem, How It Works (01–07), AI, Specs, Security, FAQ, CTA, Footer.
-- All copy lifted from `content/copy.ts`.
-- No interactive sim yet — use a placeholder SVG for Architecture.
-- Deploy checkpoint.
+### Phase 3 — Content sections — **DONE**
+- [x] `content/copy.ts` + `content/faq.ts` as single source of truth.
+- [x] `Hero` with left-right two-column layout, device mock cycling 4 screens, primary + secondary CTAs, pulsing OPERATIONAL dot, bracketed tag.
+- [x] `DataBand` — 4 mono stats (phones · servers · latency · weight).
+- [x] `Problem` — surface paragraph + 2 go-deeper accordions.
+- [x] `HowItWorks` — 7 numbered steps with evidence lines.
+- [x] `AI` — spec table + compaction prompt in stacked CodeWindow + 3 go-deeper accordions (Swift integration, one-model justification, latency math).
+- [x] `Specs` — 3-column mono data block (Protocol · Model · Physical).
+- [x] `Security` — 2×2 resilience cards.
+- [x] `FAQ` — 7 accordions.
+- [x] `CTA` — dual bracketed buttons.
+- [x] `Footer` — dossier card + ASCII tree + YC line with live links.
 
-### Phase 4 — Mesh simulation *(1 day)*
-- `MeshSimulation.tsx` + `lib/mesh/*`.
-- 3 scripted vignettes.
-- Side-panel inspector.
-- Ticker log.
-- Reduced-motion fallback (static SVG).
-- Deploy checkpoint.
+### Phase 4 — Mesh simulation — **DONE**
+- [x] `lib/mesh/types.ts` — NodeId, MeshNode, MeshEdge, Packet, Vignette.
+- [x] `lib/mesh/layout.ts` — 9 nodes (1 commander + 2 L1 + 6 L2) with viewBox coords, parent/child, callsign, lat/lon.
+- [x] `lib/mesh/scenarios.ts` — 3 vignettes (Contact, Clear, Casualty) cycling every 6.4s.
+- [x] `MeshSimulation.tsx` — SVG canvas with BROADCAST/COMPACTION/BOTH toggle, scripted transcripts fan out to siblings+parent, amber-pulse on compaction, ticker log (aria-live polite), selected-node pulse ring, keyboard-focusable nodes.
+- [x] `MeshInspector` (same file) — callsign header, role label, LAT/LON readout, parent/siblings/children lists, live compaction queue, last emitted summary.
+- [x] `Architecture.tsx` — wraps the sim + 6 go-deeper accordions (TTL flooding, routing rules table, envelope JSON, auto-reparenting, PROMOTE, encryption).
+- [x] Reduced-motion gate — packet animation skips to end state.
 
-### Phase 5 — Video integration *(½ day)*
-- Hero background loop.
-- Demo section full video with captions.
-- OG image + poster frame.
-- Mobile fallbacks.
-- Deploy checkpoint.
+### Phase 5 — Demo + OG + favicon — **DONE**
+- [x] `Demo.tsx` — aspect-video placeholder that gracefully converts to real `<video>` once `/public/video/demo-hero.{mp4,webm}` + `.en.vtt` + poster are dropped in. Commented block shows the wiring.
+- [x] 4-screen carousel below the video — tabs on left, active annotation inline, iPhone frame with selected `IOSScreen` on right.
+- [x] `src/app/opengraph-image.tsx` — dynamic 1200×630 OG image with inset frame, 48px grid, pulsing dot, hero copy, YC line.
+- [x] `src/app/icon.tsx` — lime-bordered favicon with 3-node mesh motif.
+- [x] `IOSScreen.tsx` — pure SVG renderings of Live Feed, Tree View, Data Flow, Map screens. No image assets required.
+- [x] `DeviceMock.tsx` — iPhone-shaped frame with auto-cycling screens + indicator dots.
 
-### Phase 6 — Screenshots & polish *(½ day)*
-- 4 iOS screen mocks (exported from Xcode previews or designed as SVG).
-- Scroll-linked annotation callouts in Demo section.
-- Lighthouse pass: perf, a11y, SEO.
-- Open Graph + Twitter card.
-- Final copy pass with the team.
+### Phase 6 — Polish — **DONE**
+- [x] SVG `feTurbulence` grain overlay — no external PNG needed.
+- [x] `scroll-margin-top: 96px` on all `section[id]` so anchor jumps clear the fixed nav.
+- [x] All nodes in the sim are keyboard-focusable with `aria-label`.
+- [x] Ticker log wrapped in `role="log" aria-live="polite"`.
+- [x] `prefers-reduced-motion` honoured globally and in the sim packet animation specifically.
+- [x] OG + icon routes set correct runtime + content-type.
 
-### Phase 7 — Launch *(¼ day)*
-- Domain cutover.
-- Analytics (Vercel Analytics — no third-party cookies).
-- Sanity-check on real iPhone Safari, Chrome Android, desktop Safari/Firefox/Chrome.
+### Phase 7 — Launch
+- [ ] Domain cutover (still open — see §11).
+- [ ] Vercel deploy (needs user auth).
+- [ ] Analytics (Vercel Analytics when live).
+- [ ] Sanity-check on real iPhone Safari, Chrome Android, desktop Safari/Firefox/Chrome.
+- [ ] Drop real cinematic video into `/public/video/`, uncomment the `<video>` block in `Demo.tsx`.
 
 **Estimated total: ~4 working days for one dev. Faster with two (sim + copy tracks parallel).**
 
