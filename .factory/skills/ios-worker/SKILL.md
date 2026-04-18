@@ -1,6 +1,6 @@
 ---
 name: ios-worker
-description: Native iOS (Swift/SwiftUI) implementation worker for TacNet app features
+description: Native iOS (Swift/SwiftUI) implementation worker for TacNet app features — test-and-fix, UI smoke, and Simulator automation
 ---
 
 # iOS Worker
@@ -9,85 +9,159 @@ NOTE: Startup and cleanup are handled by `worker-base`. This skill defines the W
 
 ## When to Use This Skill
 
-All TacNet iOS implementation features: data models, services, view models, views, BLE mesh, Cactus AI integration, SwiftUI screens, and XCTest unit tests.
+All TacNet iOS implementation, test-fixing, Simulator UI smoke, XCUITest authoring, warnings cleanup, and XCTest-level logic features. This is the only worker skill in the project.
 
 ## Required Skills
 
-None. All work is done via Xcode toolchain (xcodebuild).
+None. All work is done via the Xcode toolchain (`xcodebuild`) and Simulator tools (`xcrun simctl`).
 
 ## Work Procedure
 
-1. **Read the feature description** thoroughly. Check preconditions -- if a dependency doesn't exist yet, return to orchestrator.
+### 1. Read the feature description thoroughly
+- Identify whether the feature is: (a) fix-an-existing-failing-test, (b) add-tests-and-feature-code, (c) Simulator smoke / UI test authoring, or (d) warnings cleanup.
+- Check preconditions. If a dependency is missing, return to orchestrator.
+- Reference `.factory/library/architecture.md` for component relationships and `.factory/library/cactus-api.md` for Cactus SDK usage.
 
-2. **Write tests FIRST (TDD)**:
-   - Create or update XCTest files in `TacNetTests/` targeting the feature's logic.
-   - Tests must compile but FAIL (red) before implementation.
-   - Cover: normal path, edge cases from expectedBehavior, and at least one boundary condition.
-   - Run: `xcodebuild test -project TacNet.xcodeproj -scheme TacNet -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' -only-testing:TacNetTests 2>&1 | tail -30` -- confirm tests fail.
+### 2. Write or verify tests FIRST (TDD)
 
-3. **Implement the feature**:
-   - Follow the project's Swift style: Swift Concurrency (async/await, actors), SwiftUI for views, Codable for models.
-   - Place files in the correct directory per the project structure (Models/, Services/, ViewModels/, Views/).
-   - Reference `.factory/library/architecture.md` for component relationships and `.factory/library/cactus-api.md` for Cactus SDK usage.
+**For fix-existing-failing-test features:**
+- First, RUN the target test on the current code and confirm it fails (red). Capture the failure message.
+- Do NOT modify the test to make it pass — fix the implementation.
 
-4. **Make tests pass (green)**:
-   - Run the same xcodebuild test command. All tests must pass.
-   - If tests fail, fix implementation (not tests) until green.
+**For new-behavior features:**
+- Create or update XCTest cases in `TacNetTests/TacNetTests.swift` (project convention: single test file). New UI tests go into the `TacNetUITests` target.
+- Tests must compile and FAIL (red) before implementation.
+- Cover: normal path, edge cases from `expectedBehavior`, and at least one boundary condition.
 
-5. **Run full project build**:
-   - `xcodebuild build -project TacNet.xcodeproj -scheme TacNet -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' 2>&1 | tail -20`
-   - Fix any compiler errors or warnings.
+Run a targeted test:
+```bash
+xcodebuild test -project TacNet.xcodeproj -scheme TacNet \
+  -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' \
+  -only-testing:TacNetTests/TacNetTests/<TestName> 2>&1 | tail -30
+```
 
-6. **Run all tests** (not just yours):
-   - `xcodebuild test -project TacNet.xcodeproj -scheme TacNet -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' 2>&1 | tail -40`
-   - All tests must pass. If a pre-existing test breaks, investigate and fix if it's related to your change, or report it.
+### 3. Implement the feature / fix
 
-7. **Verify manually** where applicable:
-   - For UI features: describe what you'd verify on device (since simulator can't do BLE).
-   - For logic features: verify via test output.
+Conventions:
+- Swift 5.9+, Swift Concurrency (`async`/`await`, actors).
+- SwiftUI for views; do not introduce UIKit unless strictly required.
+- `Codable` for models; explicit `CodingKeys` for wire format.
+- Place files under `TacNet/Models/`, `TacNet/Services/`, `TacNet/Views/`, `TacNet/Utilities/` per existing layout.
+- **Preserve existing NSLog debug additions** in `BluetoothMeshService.swift`, `Cactus.swift`, and `ContentView.swift`. Match the `[BLE] / [PTT] / [ModelDownload] / [MSG] / [Role]` prefix convention when adding new logs.
+
+### 4. Make tests pass (green)
+
+```bash
+xcodebuild test -project TacNet.xcodeproj -scheme TacNet \
+  -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' \
+  -only-testing:TacNetTests/TacNetTests/<TestName> 2>&1 | tail -30
+```
+
+If tests still fail, fix implementation (not tests) until green.
+
+### 5. Run full project build (fix warnings if warnings-cleanup feature)
+
+```bash
+xcodebuild build -project TacNet.xcodeproj -scheme TacNet \
+  -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' 2>&1 | tail -20
+```
+
+For warnings cleanup features, also:
+```bash
+xcodebuild clean build -project TacNet.xcodeproj -scheme TacNet \
+  -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' 2>&1 \
+  | grep ': warning:' | grep -v 'cactus.framework'
+```
+Expected line count: 0 for a clean feature. Upstream Cactus framework warnings are allowlisted.
+
+### 6. Run ALL tests (full regression)
+
+```bash
+xcodebuild test -project TacNet.xcodeproj -scheme TacNet \
+  -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' 2>&1 | tail -40
+```
+
+All tests must pass. If a previously-passing test now fails, investigate — your change likely broke it.
+
+### 7. Simulator smoke (when the feature involves UI behavior)
+
+For UI-affecting features, boot the Simulator and exercise the relevant screens:
+
+```bash
+# Boot
+xcrun simctl boot 'iPhone 17' 2>&1 || true  # idempotent
+
+# Find the built .app
+APP_PATH="$(xcodebuild -project TacNet.xcodeproj -scheme TacNet \
+  -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' \
+  -showBuildSettings 2>/dev/null \
+  | awk -F '= ' '/ BUILT_PRODUCTS_DIR / {bpd=$2} / WRAPPER_NAME / {wn=$2} END {print bpd"/"wn}')"
+
+# Install + launch + screenshot + terminate
+xcrun simctl install 'iPhone 17' "$APP_PATH"
+xcrun simctl launch 'iPhone 17' com.tacnet.app
+sleep 5
+xcrun simctl io booted screenshot /tmp/tacnet-smoke.png
+# ... interact via XCUITest or manually document what appears ...
+xcrun simctl terminate 'iPhone 17' com.tacnet.app
+xcrun simctl shutdown 'iPhone 17'
+```
+
+**Console red-flags to grep for** (any occurrence is a failure):
+`Fatal error:`, `Thread 1: EXC_`, `SIGABRT`, `Modifying state during view update`, `AttributeGraph: cycle detected`, `Unhandled error`.
+
+### 8. Clean up any started processes
+
+- Always `xcrun simctl shutdown 'iPhone 17'` (or `shutdown all`) when done with Simulator work.
+- Never leave watch-mode test runners, streaming console processes, or booted simulators behind.
+
+### 9. Commit your changes before ending the session
+
+The mission runner expects a commit per feature. Stage and commit the implementation + test files with a clear message.
+
+---
 
 ## Example Handoff
 
 ```json
 {
-  "salientSummary": "Implemented TreeNode, NetworkConfig, Message, and NodeIdentity Codable models with full encode/decode support, version-based convergence logic, and tree helper utilities. Wrote 24 XCTests covering round-trip encoding, malformed JSON rejection, version monotonicity, and parent/sibling/children lookups. All tests pass.",
-  "whatWasImplemented": "Data models (TreeNode, NetworkConfig, Message, NodeIdentity) in Models/ directory. TreeHelpers utility with parent(), siblings(), children(), level() functions. Message deduplicator with bounded seen-set. All models conform to Codable with explicit CodingKeys. NetworkConfig includes version-based convergence logic.",
+  "salientSummary": "Fixed the 7 failing ModelDownload/AppBootstrap tests. Root cause was MockURLSessionDownloadClient returning a 19-byte error payload that failed the new size-sanity check in ModelDownloadService, combined with resumeData not being persisted between retry calls in AppBootstrapViewModel. Updated ModelDownloadService to distinguish interrupted vs size-mismatch errors, and corrected the resumeData hand-off in the retry path. All 7 target tests now pass; full suite runs 119 tests with 0 failures.",
+  "whatWasImplemented": "Modified TacNet/Services/Cactus.swift (ModelDownloadService): added InterruptedError classification distinct from size-mismatch; introduced @MainActor-safe resumeData persistence keyed by attempt id. Modified TacNet/Views/ContentView.swift (AppBootstrapViewModel): retry() now reads stored resumeData and passes it to download(resumeData:); gate unlock uses Task.yield() to ensure the 3s deadline is met. Preserved all existing NSLog debug additions.",
   "whatWasLeftUndone": "",
   "verification": {
     "commandsRun": [
       {
-        "command": "xcodebuild test -project TacNet.xcodeproj -scheme TacNet -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' -only-testing:TacNetTests/ModelTests 2>&1 | tail -30",
+        "command": "xcodebuild test -project TacNet.xcodeproj -scheme TacNet -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' -only-testing:TacNetTests/TacNetTests/testModelDownloadServiceReportsMonotonicProgressWithAtLeastFiveIntermediateCallbacksAndUnlocksGate 2>&1 | tail -10",
         "exitCode": 0,
-        "observation": "24 tests passed, 0 failed. TreeNode round-trip, malformed JSON rejection, version monotonicity, message type enum coverage, tree helpers all green."
+        "observation": "Test passed (0.042s). 5 intermediate callbacks observed, gate unlocked."
       },
       {
-        "command": "xcodebuild build -project TacNet.xcodeproj -scheme TacNet -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' 2>&1 | tail -10",
+        "command": "xcodebuild test -project TacNet.xcodeproj -scheme TacNet -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' 2>&1 | tail -10",
         "exitCode": 0,
-        "observation": "BUILD SUCCEEDED. No warnings."
+        "observation": "Executed 119 tests, 0 failures, 0 unexpected. All 7 formerly-failing tests now pass."
+      },
+      {
+        "command": "xcodebuild build -project TacNet.xcodeproj -scheme TacNet -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' 2>&1 | tail -5",
+        "exitCode": 0,
+        "observation": "** BUILD SUCCEEDED **. No new warnings introduced."
       }
     ],
     "interactiveChecks": []
   },
   "tests": {
-    "added": [
-      {
-        "file": "TacNetTests/ModelTests/TreeNodeTests.swift",
-        "cases": [
-          { "name": "testRoundTripEncoding", "verifies": "VAL-FOUND-001" },
-          { "name": "testMalformedJSONRejection", "verifies": "VAL-FOUND-002" },
-          { "name": "testDeepTreeRoundTrip", "verifies": "VAL-FOUND-001" }
-        ]
-      }
-    ]
+    "added": []
   },
   "discoveredIssues": []
 }
 ```
 
+---
+
 ## When to Return to Orchestrator
 
-- Feature depends on a model, service, or view that doesn't exist yet and isn't part of this feature
-- Xcode project structure needs changes (adding targets, build phases, entitlements)
-- Cactus SDK integration issues (framework not loading, API mismatch)
-- BLE entitlements or Info.plist changes needed
-- Requirements are ambiguous or contradictory
+- Feature depends on a model/service/view/target that doesn't exist and isn't part of this feature.
+- `TacNet.xcodeproj` structure needs changes you cannot make cleanly via `xcodebuild` (e.g., adding a new target like `TacNetUITests` is IN scope, but entitlement/signing changes are NOT).
+- Cactus SDK integration breaks (framework not loading, API mismatch).
+- BLE entitlements or Info.plist changes required.
+- A test expectation appears genuinely wrong (not a bug to fix but a contract to renegotiate).
+- A fix would require violating one of the Mission Boundaries in `AGENTS.md` (e.g., removing the preserved NSLog debug lines, modifying the Cactus XCFramework, pushing to remote).
