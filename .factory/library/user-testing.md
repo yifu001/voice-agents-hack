@@ -9,6 +9,7 @@ The TacNet product is ultimately a native iOS app designed for multi-phone BLE o
 ## Testing Tools
 
 - **`xcodebuild test`** — XCTest unit/integration tests (existing suite in `TacNetTests/TacNetTests.swift`, 119 tests). Covers all pure logic: models, routing, compaction triggers, tree helpers, dedup, version convergence, role claim protocol, download state machine (mocked client), PTT state transitions (mocked mesh).
+  - For this project, default scheme test execution may prioritize UI test-plan entries; to reliably validate unit assertions use explicit selectors: `-only-testing:TacNetTests` (and combine with `-only-testing:TacNetUITests` for full-sweep evidence).
 - **`xcodebuild test` + XCUITest** — New `TacNetUITests` target (added by Feature 3 of the current mission) drives the simulator UI walkthrough. Used for VAL-UI-* assertions.
 - **`xcrun simctl`** — Simulator lifecycle (boot, install, launch, screenshot, terminate, shutdown) and console streaming (`launch --console-pty`).
 - **Screenshots** — Capture via `xcrun simctl io booted screenshot <path>.png` for evidence. Stored under `TacNetTests/Screenshots/` when committed as part of regression evidence.
@@ -42,3 +43,12 @@ Occurrences of any of these strings fail VAL-UI-013.
 ## Physical-Device-Only Assertions (Out of Scope This Mission)
 
 Listed in `MANUAL_TESTING.md` — 53 manual assertions covering BLE mesh, real Cactus, real mic, multi-phone flows. They remain the definition of "fully working on hardware" and must be run on 4 physical iPhones before any production release. They are NOT part of this mission's `validation-contract.md`.
+
+## Flow Validator Guidance: iOS Simulator
+
+- Use only `iPhone 17` Simulator (`platform=iOS Simulator,name=iPhone 17,OS=latest`).
+- Stay inside repo root `/Users/lucaspfingstenplanells/Desktop/YC-hack`; do not write outside `.factory/validation/<milestone>/user-testing/` and mission evidence directories.
+- Respect single-run isolation: no parallel `xcodebuild` processes and no shared mutable simulator state across simultaneous validators.
+- If your flow depends on simulator state, boot/clean/reset only within your own sequence and leave the simulator shut down when done.
+- Keep evidence paths scoped to your assigned group id under `{missionDir}/evidence/<milestone>/<group-id>/`.
+- Do not modify product logic for validation convenience; if environment/setup blocks testing, report blocker with concrete command output.
