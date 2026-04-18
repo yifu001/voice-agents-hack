@@ -501,6 +501,176 @@ final class TacNetTests: XCTestCase {
         XCTAssertTrue(service.connectedPeerIDs.isEmpty)
     }
 
+    func testModelDownloadServiceReportsMonotonicProgressWithAtLeastFiveIntermediateCallbacksAndUnlocksGate() async throws {
+        let sandbox = try makeModelDownloadSandbox()
+        defer { sandbox.cleanup() }
+
+        let temporaryModelFile = try makeTemporaryModelFile(in: sandbox.baseDirectory)
+        let mockSession = MockURLSessionDownloadClient(
+            scriptedResponses: [
+                .init(
+                    progressEvents: [(50, 1_000), (200, 1_000), (700, 1_000), (1_000, 1_000)],
+                    result: .success(temporaryModelFile)
+                )
+            ]
+        )
+
+        let service = makeModelDownloadService(
+            sandbox: sandbox,
+            downloader: mockSession,
+            availableStorageBytes: 20_000_000_000
+        )
+
+        let gateLockedBeforeDownload = await service.canUseTacticalFeatures()
+        XCTAssertFalse(gateLockedBeforeDownload, "App should stay gated before model download completes")
+
+        let progressCollector = LockedArray<Double>()
+        _ = try await service.ensureModelAvailable { progress in
+            progressCollector.append(progress)
+        }
+        let reportedProgress = progressCollector.values
+
+        let gateUnlockedAfterDownload = await service.canUseTacticalFeatures()
+        XCTAssertTrue(gateUnlockedAfterDownload, "Gate should unlock once model download completes")
+        XCTAssertTrue(reportedProgress.allSatisfy { $0 >= 0 && $0 <= 1 }, "Progress must stay inside [0, 1]")
+        XCTAssertTrue(
+            zip(reportedProgress, reportedProgress.dropFirst()).allSatisfy { lhs, rhs in lhs <= rhs + 0.000_000_1 },
+            "Progress callbacks must be monotonic"
+        )
+        let finalProgress = try XCTUnwrap(reportedProgress.last)
+        XCTAssertEqual(finalProgress, 1.0, accuracy: 0.000_001)
+
+        let intermediateCallbacks = reportedProgress.filter { $0 > 0 && $0 < 1 }
+        XCTAssertGreaterThanOrEqual(intermediateCallbacks.count, 5, "Need at least 5 intermediate progress callbacks")
+
+        XCTAssertEqual(mockSession.requestCount, 1)
+        XCTAssertNil(mockSession.request(at: 0)?.resumeData, "Initial attempt should start without resume data")
+    }
+
+    func testModelDownloadServiceFailsBeforeNetworkWhenStorageIsInsufficient() async throws {
+        let sandbox = try makeModelDownloadSandbox()
+        defer { sandbox.cleanup() }
+
+        let mockSession = MockURLSessionDownloadClient(scriptedResponses: [])
+        let service = makeModelDownloadService(
+            sandbox: sandbox,
+            downloader: mockSession,
+            availableStorageBytes: 1_000_000_000
+        )
+
+        do {
+            _ = try await service.ensureModelAvailable()
+            XCTFail("Expected insufficient storage error")
+        } catch let error as ModelDownloadServiceError {
+            guard case let .insufficientStorage(requiredBytes, availableBytes) = error else {
+                return XCTFail("Expected insufficientStorage, got \(error)")
+            }
+            XCTAssertEqual(requiredBytes, makeModelDownloadConfiguration().expectedModelSizeBytes)
+            XCTAssertEqual(availableBytes, 1_000_000_000)
+        }
+
+        XCTAssertEqual(mockSession.requestCount, 0, "Network must not start when storage check fails")
+        let gateState = await service.canUseTacticalFeatures()
+        XCTAssertFalse(gateState)
+    }
+
+    func testModelDownloadServiceResumesUsingStoredResumeDataAfterInterruption() async throws {
+        let sandbox = try makeModelDownloadSandbox()
+        defer { sandbox.cleanup() }
+
+        let resumeData = Data("resume-point".utf8)
+        let temporaryModelFile = try makeTemporaryModelFile(in: sandbox.baseDirectory)
+        let mockSession = MockURLSessionDownloadClient(
+            scriptedResponses: [
+                .init(
+                    progressEvents: [(250, 1_000)],
+                    result: .failure(URLSessionDownloadClientError.interrupted(resumeData: resumeData))
+                ),
+                .init(
+                    progressEvents: [(900, 1_000), (1_000, 1_000)],
+                    result: .success(temporaryModelFile)
+                )
+            ]
+        )
+
+        let service = makeModelDownloadService(
+            sandbox: sandbox,
+            downloader: mockSession,
+            availableStorageBytes: 20_000_000_000
+        )
+
+        do {
+            _ = try await service.ensureModelAvailable()
+            XCTFail("Expected first attempt to be interrupted")
+        } catch let error as ModelDownloadServiceError {
+            guard case let .interrupted(canResume) = error else {
+                return XCTFail("Expected interrupted error, got \(error)")
+            }
+            XCTAssertTrue(canResume, "Interrupted errors should indicate resumable state when resumeData exists")
+        }
+
+        XCTAssertEqual(mockSession.requestCount, 1)
+        XCTAssertNil(mockSession.request(at: 0)?.resumeData)
+
+        _ = try await service.ensureModelAvailable()
+
+        XCTAssertEqual(mockSession.requestCount, 2)
+        XCTAssertEqual(mockSession.request(at: 1)?.resumeData, resumeData, "Second attempt should use stored resume data")
+        let gateState = await service.canUseTacticalFeatures()
+        XCTAssertTrue(gateState)
+    }
+
+    func testCactusModelInitializationIsGatedUntilDownloadCompletesThenUsesDownloadedPath() async throws {
+        let sandbox = try makeModelDownloadSandbox()
+        defer { sandbox.cleanup() }
+
+        let temporaryModelFile = try makeTemporaryModelFile(in: sandbox.baseDirectory)
+        let mockSession = MockURLSessionDownloadClient(
+            scriptedResponses: [
+                .init(
+                    progressEvents: [(500, 1_000), (1_000, 1_000)],
+                    result: .success(temporaryModelFile)
+                )
+            ]
+        )
+
+        let service = makeModelDownloadService(
+            sandbox: sandbox,
+            downloader: mockSession,
+            availableStorageBytes: 20_000_000_000
+        )
+
+        let initPathCollector = LockedArray<String>()
+        let expectedHandleAddress = UInt(bitPattern: 0xFEEDBEEF)
+        let initializer = CactusModelInitializationService(
+            downloadService: service,
+            initFunction: { modelPath, _, _ in
+                initPathCollector.append(modelPath)
+                return UnsafeMutableRawPointer(bitPattern: expectedHandleAddress)!
+            },
+            destroyFunction: { _ in }
+        )
+
+        do {
+            _ = try await initializer.initializeModel()
+            XCTFail("Expected download gate to block initialization before model is downloaded")
+        } catch let error as CactusModelInitializationError {
+            guard case .downloadIncomplete = error else {
+                return XCTFail("Expected downloadIncomplete error, got \(error)")
+            }
+        }
+
+        XCTAssertTrue(initPathCollector.values.isEmpty, "cactusInit should not run while download gate is locked")
+
+        _ = try await service.ensureModelAvailable()
+        let handle = try await initializer.initializeModel()
+        XCTAssertEqual(handle, UnsafeMutableRawPointer(bitPattern: expectedHandleAddress))
+        let initPaths = initPathCollector.values
+        XCTAssertEqual(initPaths.count, 1)
+        let downloadedDirectory = await service.downloadedModelDirectoryPath()
+        XCTAssertEqual(initPaths.first, downloadedDirectory)
+    }
+
     private func makeMeshMessage(
         id: UUID = UUID(),
         ttl: Int,
@@ -562,6 +732,55 @@ final class TacNetTests: XCTestCase {
     private func deterministicUUID(from value: Int) -> UUID {
         UUID(uuidString: String(format: "00000000-0000-0000-0000-%012X", value))!
     }
+
+    private func makeModelDownloadSandbox() throws -> ModelDownloadSandbox {
+        let suiteName = "TacNetTests.ModelDownload.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let baseDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TacNetTests-\(UUID().uuidString)", isDirectory: true)
+        let appSupportDirectory = baseDirectory.appendingPathComponent("ApplicationSupport", isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupportDirectory, withIntermediateDirectories: true)
+
+        return ModelDownloadSandbox(
+            suiteName: suiteName,
+            userDefaults: defaults,
+            baseDirectory: baseDirectory,
+            appSupportDirectory: appSupportDirectory
+        )
+    }
+
+    private func makeTemporaryModelFile(in directory: URL) throws -> URL {
+        let fileURL = directory.appendingPathComponent("mock-downloaded-model-\(UUID().uuidString).bin")
+        try Data("mock-model-contents".utf8).write(to: fileURL, options: .atomic)
+        return fileURL
+    }
+
+    private func makeModelDownloadConfiguration() -> ModelDownloadConfiguration {
+        ModelDownloadConfiguration(
+            modelURL: URL(string: "https://huggingface.co/Cactus-Compute/gemma-4-e4b-int4/resolve/main/gemma-4-e4b-int4.bin")!,
+            expectedModelSizeBytes: 6_700_000_000,
+            modelDirectoryName: "gemma-4-e4b-int4",
+            modelFileName: "gemma-4-e4b-int4.bin"
+        )
+    }
+
+    private func makeModelDownloadService(
+        sandbox: ModelDownloadSandbox,
+        downloader: URLSessionDownloading,
+        availableStorageBytes: Int64
+    ) -> ModelDownloadService {
+        ModelDownloadService(
+            configuration: makeModelDownloadConfiguration(),
+            downloader: downloader,
+            storageChecker: MockStorageChecker(availableBytes: availableStorageBytes),
+            fileManager: FileManager.default,
+            userDefaults: sandbox.userDefaults,
+            applicationSupportDirectory: sandbox.appSupportDirectory,
+            persistenceKeyPrefix: "TacNetTests.ModelDownload.\(UUID().uuidString)"
+        )
+    }
 }
 
 private final class MockBluetoothMeshTransport: BluetoothMeshTransporting {
@@ -584,5 +803,103 @@ private final class MockBluetoothMeshTransport: BluetoothMeshTransporting {
 
     func emit(_ event: BluetoothMeshTransportEvent) {
         eventHandler?(event)
+    }
+}
+
+private struct ModelDownloadSandbox {
+    let suiteName: String
+    let userDefaults: UserDefaults
+    let baseDirectory: URL
+    let appSupportDirectory: URL
+
+    func cleanup() {
+        userDefaults.removePersistentDomain(forName: suiteName)
+        try? FileManager.default.removeItem(at: baseDirectory)
+    }
+}
+
+private struct MockStorageChecker: StorageChecking {
+    let availableBytes: Int64
+
+    func availableStorageBytes(for _: URL) throws -> Int64 {
+        availableBytes
+    }
+}
+
+private final class MockURLSessionDownloadClient: URLSessionDownloading, @unchecked Sendable {
+    struct ScriptedResponse {
+        let progressEvents: [(written: Int64, total: Int64)]
+        let result: Result<URL, Error>
+    }
+
+    private let lock = NSLock()
+    private var requests: [ModelDownloadRequest] = []
+    private var scriptedResponses: [ScriptedResponse]
+
+    init(scriptedResponses: [ScriptedResponse]) {
+        self.scriptedResponses = scriptedResponses
+    }
+
+    var requestCount: Int {
+        lock.withLock {
+            requests.count
+        }
+    }
+
+    func request(at index: Int) -> ModelDownloadRequest? {
+        lock.withLock {
+            guard requests.indices.contains(index) else { return nil }
+            return requests[index]
+        }
+    }
+
+    func download(
+        request: ModelDownloadRequest,
+        progress: @escaping @Sendable (Int64, Int64) -> Void
+    ) async throws -> URL {
+        let response: ScriptedResponse = lock.withLock {
+            requests.append(request)
+            guard !scriptedResponses.isEmpty else {
+                return ScriptedResponse(
+                    progressEvents: [],
+                    result: .failure(NSError(domain: "MockURLSessionDownloadClient", code: -1))
+                )
+            }
+            return scriptedResponses.removeFirst()
+        }
+
+        response.progressEvents.forEach { progress($0.written, $0.total) }
+
+        switch response.result {
+        case let .success(url):
+            return url
+        case let .failure(error):
+            throw error
+        }
+    }
+}
+
+private final class LockedArray<Element>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [Element] = []
+
+    func append(_ element: Element) {
+        lock.withLock {
+            storage.append(element)
+        }
+    }
+
+    var values: [Element] {
+        lock.withLock {
+            storage
+        }
+    }
+}
+
+private extension NSLock {
+    func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock()
+        defer { unlock() }
+        return try body()
     }
 }
