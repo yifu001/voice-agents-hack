@@ -1353,6 +1353,171 @@ final class TacNetTests: XCTestCase {
         XCTAssertTrue(promotedService.isOrganiser)
     }
 
+    func testAudioServiceAcceptsValidPCM16kMono16BitAndForwardsTranscript() async throws {
+        let clip = makeAlternatingPCMClip(sampleCount: 400, amplitude: 1_200)
+        let capturer = MockAudioCapturer(clips: [clip])
+        let transcriber = MockCactusTranscriber(results: ["Alpha contact east"])
+        let transcriptConsumer = MockTranscriptConsumer()
+        let audioService = AudioService(
+            capturer: capturer,
+            transcriber: transcriber,
+            transcriptConsumer: transcriptConsumer,
+            maxRecordingDuration: 60
+        )
+
+        try await audioService.pttPressed()
+        let queuedSequence = try await audioService.pttReleased()
+        XCTAssertEqual(queuedSequence, 0)
+
+        await audioService.waitForIdle()
+
+        let history = await audioService.transcriptHistory
+        XCTAssertEqual(history.count, 1)
+        XCTAssertEqual(history.first?.sequence, 0)
+        XCTAssertEqual(history.first?.transcript, "Alpha contact east")
+
+        let transcribedInputs = await transcriber.receivedPCMInputs()
+        XCTAssertEqual(transcribedInputs, [clip.data])
+        XCTAssertTrue(clip.isPCM16kMono16Bit)
+
+        let consumed = await transcriptConsumer.received()
+        XCTAssertEqual(consumed.count, 1)
+        XCTAssertEqual(consumed.first?.transcript, "Alpha contact east")
+    }
+
+    func testAudioServiceSkipsEmptyAndSilenceAudioWithoutCreatingTranscript() async throws {
+        let emptyClip = makePCMClip(samples: [])
+        let silenceClip = makePCMClip(samples: Array(repeating: 0, count: 2_000))
+        let capturer = MockAudioCapturer(clips: [emptyClip, silenceClip])
+        let transcriber = MockCactusTranscriber(results: ["should-not-be-used"])
+        let transcriptConsumer = MockTranscriptConsumer()
+        let audioService = AudioService(
+            capturer: capturer,
+            transcriber: transcriber,
+            transcriptConsumer: transcriptConsumer,
+            maxRecordingDuration: 60
+        )
+
+        try await audioService.pttPressed()
+        let firstResult = try await audioService.pttReleased()
+        XCTAssertNil(firstResult, "Zero-length audio should not queue a transcript")
+
+        try await audioService.pttPressed()
+        let secondResult = try await audioService.pttReleased()
+        XCTAssertNil(secondResult, "Silence-only audio should not queue a transcript")
+
+        await audioService.waitForIdle()
+
+        let history = await audioService.transcriptHistory
+        let transcribedInputs = await transcriber.receivedPCMInputs()
+        let consumed = await transcriptConsumer.received()
+        XCTAssertTrue(history.isEmpty)
+        XCTAssertTrue(transcribedInputs.isEmpty)
+        XCTAssertTrue(consumed.isEmpty)
+    }
+
+    func testAudioServiceSerializesRapidSequentialPTTWithoutCorruption() async throws {
+        let clipA = makeAlternatingPCMClip(sampleCount: 360, amplitude: 1_000)
+        let clipB = makeAlternatingPCMClip(sampleCount: 380, amplitude: 2_000)
+        let clipC = makeAlternatingPCMClip(sampleCount: 400, amplitude: 3_000)
+        let capturer = MockAudioCapturer(clips: [clipA, clipB, clipC])
+        let transcriber = MockCactusTranscriber(
+            results: ["first", "second", "third"],
+            delayNanoseconds: 40_000_000
+        )
+        let transcriptConsumer = MockTranscriptConsumer()
+        let audioService = AudioService(
+            capturer: capturer,
+            transcriber: transcriber,
+            transcriptConsumer: transcriptConsumer,
+            maxRecordingDuration: 60
+        )
+
+        try await audioService.pttPressed()
+        _ = try await audioService.pttReleased()
+        try await audioService.pttPressed()
+        _ = try await audioService.pttReleased()
+        try await audioService.pttPressed()
+        _ = try await audioService.pttReleased()
+
+        await audioService.waitForIdle()
+
+        let history = await audioService.transcriptHistory
+        XCTAssertEqual(history.map(\.sequence), [0, 1, 2])
+        XCTAssertEqual(history.map(\.transcript), ["first", "second", "third"])
+
+        let transcribedInputs = await transcriber.receivedPCMInputs()
+        XCTAssertEqual(transcribedInputs, [clipA.data, clipB.data, clipC.data], "Each rapid press should transcribe its own clip in order without data corruption")
+
+        let consumed = await transcriptConsumer.received()
+        XCTAssertEqual(consumed.map(\.sequence), [0, 1, 2])
+        XCTAssertEqual(consumed.map(\.transcript), ["first", "second", "third"])
+    }
+
+    func testAudioServiceCapsVeryLongAudioBeforeTranscription() async throws {
+        let ninetySecondSampleCount = 16_000 * 90
+        let longClip = makeAlternatingPCMClip(sampleCount: ninetySecondSampleCount, amplitude: 1_500)
+        let capturer = MockAudioCapturer(clips: [longClip])
+        let transcriber = MockCactusTranscriber(results: ["long clip transcript"])
+        let transcriptConsumer = MockTranscriptConsumer()
+        let audioService = AudioService(
+            capturer: capturer,
+            transcriber: transcriber,
+            transcriptConsumer: transcriptConsumer,
+            maxRecordingDuration: 60
+        )
+
+        try await audioService.pttPressed()
+        _ = try await audioService.pttReleased()
+        await audioService.waitForIdle()
+
+        let transcribedInputs = await transcriber.receivedPCMInputs()
+        let firstInput = try XCTUnwrap(transcribedInputs.first)
+        XCTAssertEqual(firstInput.count, 16_000 * 60 * 2, "Audio should be capped to 60 seconds at 16kHz mono 16-bit")
+        let history = await audioService.transcriptHistory
+        XCTAssertEqual(history.count, 1)
+    }
+
+    private func makePCMClip(
+        samples: [Int16],
+        sampleRate: Int = 16_000,
+        channels: Int = 1,
+        bitsPerSample: Int = 16
+    ) -> RecordedAudioClip {
+        var data = Data(count: samples.count * MemoryLayout<Int16>.size)
+        data.withUnsafeMutableBytes { destination in
+            samples.withUnsafeBytes { source in
+                destination.copyMemory(from: source)
+            }
+        }
+        return RecordedAudioClip(
+            data: data,
+            sampleRate: sampleRate,
+            channels: channels,
+            bitsPerSample: bitsPerSample
+        )
+    }
+
+    private func makeAlternatingPCMClip(
+        sampleCount: Int,
+        amplitude: Int16,
+        sampleRate: Int = 16_000
+    ) -> RecordedAudioClip {
+        var data = Data(count: sampleCount * MemoryLayout<Int16>.size)
+        data.withUnsafeMutableBytes { rawBuffer in
+            let samples = rawBuffer.bindMemory(to: Int16.self)
+            for index in 0..<sampleCount {
+                samples[index] = index.isMultiple(of: 2) ? amplitude : -amplitude
+            }
+        }
+        return RecordedAudioClip(
+            data: data,
+            sampleRate: sampleRate,
+            channels: 1,
+            bitsPerSample: 16
+        )
+    }
+
     private func makeMeshMessage(
         id: UUID = UUID(),
         ttl: Int,
@@ -1652,6 +1817,68 @@ private final class MockURLSessionDownloadClient: URLSessionDownloading, @unchec
         case let .failure(error):
             throw error
         }
+    }
+}
+
+private actor MockAudioCapturer: AudioCapturing {
+    private var clips: [RecordedAudioClip]
+    private var isCapturing = false
+
+    init(clips: [RecordedAudioClip]) {
+        self.clips = clips
+    }
+
+    func startCapture() async throws {
+        isCapturing = true
+    }
+
+    func stopCapture() async throws -> RecordedAudioClip {
+        guard isCapturing else {
+            throw AudioServiceError.notRecording
+        }
+        isCapturing = false
+        guard !clips.isEmpty else {
+            return RecordedAudioClip(data: Data(), sampleRate: 16_000, channels: 1, bitsPerSample: 16)
+        }
+        return clips.removeFirst()
+    }
+}
+
+private actor MockCactusTranscriber: CactusTranscribing {
+    private var results: [String]
+    private let delayNanoseconds: UInt64
+    private var inputs: [Data] = []
+
+    init(results: [String], delayNanoseconds: UInt64 = 0) {
+        self.results = results
+        self.delayNanoseconds = delayNanoseconds
+    }
+
+    func transcribePCM16kMono(_ pcmData: Data) async throws -> String {
+        inputs.append(pcmData)
+        if delayNanoseconds > 0 {
+            try? await Task.sleep(nanoseconds: delayNanoseconds)
+        }
+        guard !results.isEmpty else {
+            return ""
+        }
+        return results.removeFirst()
+    }
+
+    func receivedPCMInputs() -> [Data] {
+        inputs
+    }
+}
+
+private actor MockTranscriptConsumer: TranscriptConsuming {
+    private var transcripts: [AudioService.TranscriptResult] = []
+
+    func receiveTranscript(_ transcript: AudioService.TranscriptResult) async {
+        transcripts.append(transcript)
+    }
+
+    func received() -> [AudioService.TranscriptResult] {
+        transcripts
     }
 }
 

@@ -1,12 +1,473 @@
 import Foundation
 import Combine
 import CoreBluetooth
+import AVFoundation
 
 struct BluetoothMeshUUIDs {
     static let service = CBUUID(string: "7B4D8C10-3A8E-4D1A-9F53-2E28D9C1A001")
     static let broadcastCharacteristic = CBUUID(string: "7B4D8C10-3A8E-4D1A-9F53-2E28D9C1A101")
     static let compactionCharacteristic = CBUUID(string: "7B4D8C10-3A8E-4D1A-9F53-2E28D9C1A102")
     static let treeConfigCharacteristic = CBUUID(string: "7B4D8C10-3A8E-4D1A-9F53-2E28D9C1A103")
+}
+
+struct RecordedAudioClip: Sendable, Equatable {
+    let data: Data
+    let sampleRate: Int
+    let channels: Int
+    let bitsPerSample: Int
+
+    var isPCM16kMono16Bit: Bool {
+        sampleRate == 16_000 &&
+            channels == 1 &&
+            bitsPerSample == 16 &&
+            data.count.isMultiple(of: MemoryLayout<Int16>.size)
+    }
+
+    var bytesPerSecond: Int {
+        sampleRate * channels * bitsPerSample / 8
+    }
+
+    var durationSeconds: TimeInterval {
+        guard bytesPerSecond > 0 else {
+            return 0
+        }
+        return TimeInterval(Double(data.count) / Double(bytesPerSecond))
+    }
+
+    func capped(to maximumDuration: TimeInterval) -> RecordedAudioClip {
+        guard maximumDuration > 0, bytesPerSecond > 0 else {
+            return self
+        }
+
+        let maximumBytes = Int(Double(bytesPerSecond) * maximumDuration)
+        guard data.count > maximumBytes else {
+            return self
+        }
+
+        return RecordedAudioClip(
+            data: Data(data.prefix(maximumBytes)),
+            sampleRate: sampleRate,
+            channels: channels,
+            bitsPerSample: bitsPerSample
+        )
+    }
+
+    func hasSpeech(amplitudeThreshold: Int16 = 500, minimumActiveSamples: Int = 160) -> Bool {
+        guard data.count.isMultiple(of: MemoryLayout<Int16>.size),
+              minimumActiveSamples > 0 else {
+            return false
+        }
+
+        let threshold = abs(Int(amplitudeThreshold))
+        var activeSamples = 0
+        data.withUnsafeBytes { rawBuffer in
+            let samples = rawBuffer.bindMemory(to: Int16.self)
+            for sample in samples {
+                if abs(Int(sample)) >= threshold {
+                    activeSamples += 1
+                    if activeSamples >= minimumActiveSamples {
+                        break
+                    }
+                }
+            }
+        }
+        return activeSamples >= minimumActiveSamples
+    }
+}
+
+enum AudioServiceError: Error, Equatable {
+    case alreadyRecording
+    case notRecording
+    case invalidAudioFormat
+    case captureFailed(String)
+}
+
+protocol AudioCapturing: Sendable {
+    func startCapture() async throws
+    func stopCapture() async throws -> RecordedAudioClip
+}
+
+protocol CactusTranscribing: Sendable {
+    func transcribePCM16kMono(_ pcmData: Data) async throws -> String
+}
+
+protocol TranscriptConsuming: Sendable {
+    func receiveTranscript(_ transcript: AudioService.TranscriptResult) async
+}
+
+actor CactusTranscriber: CactusTranscribing {
+    typealias TranscribeFunction = @Sendable (CactusModelT, Data) throws -> String
+
+    private let modelInitializationService: CactusModelInitializationService
+    private let transcribeFunction: TranscribeFunction
+
+    init(
+        modelInitializationService: CactusModelInitializationService = CactusModelInitializationService(),
+        transcribeFunction: @escaping TranscribeFunction = { model, pcmData in
+            try cactusTranscribe(model, nil, nil, nil, nil, pcmData)
+        }
+    ) {
+        self.modelInitializationService = modelInitializationService
+        self.transcribeFunction = transcribeFunction
+    }
+
+    func transcribePCM16kMono(_ pcmData: Data) async throws -> String {
+        let modelHandle = try await modelInitializationService.initializeModelAfterEnsuringDownload()
+        let responseJSON = try transcribeFunction(modelHandle, pcmData)
+        return Self.extractTranscript(from: responseJSON)
+    }
+
+    private static func extractTranscript(from response: String) -> String {
+        let trimmedResponse = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedResponse.isEmpty else {
+            return ""
+        }
+
+        guard let payload = trimmedResponse.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: payload) else {
+            return trimmedResponse
+        }
+
+        guard let rootObject = json as? [String: Any] else {
+            return trimmedResponse
+        }
+
+        if let transcript = firstNonEmptyTranscript(in: rootObject) {
+            return transcript
+        }
+
+        if let nested = rootObject["result"] as? [String: Any],
+           let transcript = firstNonEmptyTranscript(in: nested) {
+            return transcript
+        }
+
+        if let nestedArray = rootObject["results"] as? [[String: Any]] {
+            for item in nestedArray {
+                if let transcript = firstNonEmptyTranscript(in: item) {
+                    return transcript
+                }
+            }
+        }
+
+        return trimmedResponse
+    }
+
+    private static func firstNonEmptyTranscript(in object: [String: Any]) -> String? {
+        for key in ["transcript", "response", "text"] {
+            if let value = object[key] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
+        return nil
+    }
+}
+
+final class AVAudioEngineRecorder: NSObject, AudioCapturing, @unchecked Sendable {
+    private let audioEngine: AVAudioEngine
+    private let targetFormat: AVAudioFormat
+    private let maxCapturedBytes: Int
+    private let captureLock = NSLock()
+
+    private var converter: AVAudioConverter?
+    private var capturedPCMData: Data = Data()
+    private var hasReachedCaptureLimit = false
+    private var isCapturing = false
+
+    init(
+        audioEngine: AVAudioEngine = AVAudioEngine(),
+        maxRecordingDuration: TimeInterval = 60
+    ) {
+        self.audioEngine = audioEngine
+        self.targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatInt16,
+            sampleRate: 16_000,
+            channels: 1,
+            interleaved: true
+        )!
+        let cappedDuration = max(1, Int(ceil(maxRecordingDuration)))
+        self.maxCapturedBytes = 16_000 * MemoryLayout<Int16>.size * cappedDuration
+        super.init()
+    }
+
+    func startCapture() async throws {
+        do {
+            try await MainActor.run {
+                try startCaptureOnMainActor()
+            }
+        } catch let error as AudioServiceError {
+            throw error
+        } catch {
+            throw AudioServiceError.captureFailed(error.localizedDescription)
+        }
+    }
+
+    func stopCapture() async throws -> RecordedAudioClip {
+        do {
+            try await MainActor.run {
+                try stopCaptureOnMainActor()
+            }
+        } catch let error as AudioServiceError {
+            throw error
+        } catch {
+            throw AudioServiceError.captureFailed(error.localizedDescription)
+        }
+
+        let clipData = consumeCapturedPCMData()
+
+        return RecordedAudioClip(
+            data: clipData,
+            sampleRate: 16_000,
+            channels: 1,
+            bitsPerSample: 16
+        )
+    }
+
+    @MainActor
+    private func startCaptureOnMainActor() throws {
+        guard !isCapturing else {
+            throw AudioServiceError.alreadyRecording
+        }
+
+        let inputNode = audioEngine.inputNode
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        guard let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
+            throw AudioServiceError.invalidAudioFormat
+        }
+
+        self.converter = converter
+        captureLock.lock()
+        capturedPCMData.removeAll(keepingCapacity: true)
+        hasReachedCaptureLimit = false
+        captureLock.unlock()
+
+        inputNode.removeTap(onBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
+            self?.appendConvertedBuffer(buffer)
+        }
+
+        do {
+            audioEngine.prepare()
+            try audioEngine.start()
+            isCapturing = true
+        } catch {
+            inputNode.removeTap(onBus: 0)
+            self.converter = nil
+            throw AudioServiceError.captureFailed(error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func stopCaptureOnMainActor() throws {
+        guard isCapturing else {
+            throw AudioServiceError.notRecording
+        }
+
+        audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine.stop()
+        converter = nil
+        isCapturing = false
+    }
+
+    private func appendConvertedBuffer(_ inputBuffer: AVAudioPCMBuffer) {
+        captureLock.lock()
+        defer { captureLock.unlock() }
+
+        guard !hasReachedCaptureLimit, let converter else {
+            return
+        }
+
+        let rateRatio = targetFormat.sampleRate / inputBuffer.format.sampleRate
+        let outputCapacity = AVAudioFrameCount(max(1, Int(Double(inputBuffer.frameLength) * rateRatio) + 16))
+        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputCapacity) else {
+            return
+        }
+
+        var hasSuppliedInput = false
+        var conversionError: NSError?
+        let conversionStatus = converter.convert(to: outputBuffer, error: &conversionError) { _, outStatus in
+            if hasSuppliedInput {
+                outStatus.pointee = .endOfStream
+                return nil
+            }
+            hasSuppliedInput = true
+            outStatus.pointee = .haveData
+            return inputBuffer
+        }
+
+        guard conversionError == nil,
+              conversionStatus != .error,
+              outputBuffer.frameLength > 0,
+              let channelData = outputBuffer.int16ChannelData else {
+            return
+        }
+
+        let byteCount = Int(outputBuffer.frameLength) * MemoryLayout<Int16>.size
+        let convertedData = Data(bytes: channelData.pointee, count: byteCount)
+
+        if capturedPCMData.count + convertedData.count > maxCapturedBytes {
+            let remainingBytes = max(0, maxCapturedBytes - capturedPCMData.count)
+            if remainingBytes > 0 {
+                capturedPCMData.append(convertedData.prefix(remainingBytes))
+            }
+            hasReachedCaptureLimit = true
+            return
+        }
+
+        capturedPCMData.append(convertedData)
+    }
+
+    private func consumeCapturedPCMData() -> Data {
+        captureLock.lock()
+        defer { captureLock.unlock() }
+        let clipData = capturedPCMData
+        capturedPCMData.removeAll(keepingCapacity: true)
+        return clipData
+    }
+}
+
+actor AudioService {
+    struct TranscriptResult: Equatable, Sendable {
+        let sequence: Int
+        let transcript: String
+        let clipDurationSeconds: TimeInterval
+    }
+
+    private struct PendingClip: Sendable {
+        let sequence: Int
+        let clip: RecordedAudioClip
+    }
+
+    private let capturer: AudioCapturing
+    private let transcriber: CactusTranscribing
+    private let transcriptConsumer: TranscriptConsuming?
+    private let maxRecordingDuration: TimeInterval
+    private let silenceAmplitudeThreshold: Int16
+    private let minimumActiveSamples: Int
+
+    private var isRecording = false
+    private var nextSequence = 0
+    private var pendingClips: [PendingClip] = []
+    private var processingTask: Task<Void, Never>?
+
+    private(set) var transcriptHistory: [TranscriptResult] = []
+
+    init(
+        capturer: AudioCapturing = AVAudioEngineRecorder(),
+        transcriber: CactusTranscribing = CactusTranscriber(),
+        transcriptConsumer: TranscriptConsuming? = nil,
+        maxRecordingDuration: TimeInterval = 60,
+        silenceAmplitudeThreshold: Int16 = 500,
+        minimumActiveSamples: Int = 160
+    ) {
+        self.capturer = capturer
+        self.transcriber = transcriber
+        self.transcriptConsumer = transcriptConsumer
+        self.maxRecordingDuration = maxRecordingDuration
+        self.silenceAmplitudeThreshold = silenceAmplitudeThreshold
+        self.minimumActiveSamples = minimumActiveSamples
+    }
+
+    func pttPressed() async throws {
+        guard !isRecording else {
+            throw AudioServiceError.alreadyRecording
+        }
+
+        do {
+            try await capturer.startCapture()
+            isRecording = true
+        } catch let error as AudioServiceError {
+            throw error
+        } catch {
+            throw AudioServiceError.captureFailed(error.localizedDescription)
+        }
+    }
+
+    @discardableResult
+    func pttReleased() async throws -> Int? {
+        guard isRecording else {
+            throw AudioServiceError.notRecording
+        }
+
+        let capturedClip: RecordedAudioClip
+        do {
+            capturedClip = try await capturer.stopCapture()
+            isRecording = false
+        } catch {
+            isRecording = false
+            if let audioError = error as? AudioServiceError {
+                throw audioError
+            }
+            throw AudioServiceError.captureFailed(error.localizedDescription)
+        }
+
+        let clippedAudio = capturedClip.capped(to: maxRecordingDuration)
+        guard clippedAudio.isPCM16kMono16Bit else {
+            throw AudioServiceError.invalidAudioFormat
+        }
+
+        guard clippedAudio.hasSpeech(
+            amplitudeThreshold: silenceAmplitudeThreshold,
+            minimumActiveSamples: minimumActiveSamples
+        ) else {
+            return nil
+        }
+
+        let sequence = nextSequence
+        nextSequence += 1
+        pendingClips.append(PendingClip(sequence: sequence, clip: clippedAudio))
+        startProcessingIfNeeded()
+        return sequence
+    }
+
+    func waitForIdle() async {
+        while processingTask != nil || !pendingClips.isEmpty {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
+    private func startProcessingIfNeeded() {
+        guard processingTask == nil else {
+            return
+        }
+
+        processingTask = Task {
+            await processPendingClips()
+        }
+    }
+
+    private func processPendingClips() async {
+        while !pendingClips.isEmpty {
+            let item = pendingClips.removeFirst()
+
+            do {
+                let transcript = try await transcriber.transcribePCM16kMono(item.clip.data)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !transcript.isEmpty else {
+                    continue
+                }
+
+                let result = TranscriptResult(
+                    sequence: item.sequence,
+                    transcript: transcript,
+                    clipDurationSeconds: item.clip.durationSeconds
+                )
+                transcriptHistory.append(result)
+                if let transcriptConsumer {
+                    await transcriptConsumer.receiveTranscript(result)
+                }
+            } catch {
+                continue
+            }
+        }
+
+        processingTask = nil
+        if !pendingClips.isEmpty {
+            startProcessingIfNeeded()
+        }
+    }
 }
 
 enum PeerConnectionState: String, Equatable, Sendable {
