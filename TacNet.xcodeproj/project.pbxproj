@@ -13,6 +13,7 @@
 		5863C0BC2A92CD99DDF194B0 /* SwiftData.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4CE9717028B011FFC9077618 /* SwiftData.framework */; };
 		60F2A5ED16BD700076B0137A /* cactus-ios.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 840C37A2D2F49CB246A0AED1 /* cactus-ios.xcframework */; };
 		6CDA0F05E8151523EE2CE29F /* Cactus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 942FCEBF9EBF2DBA591798EC /* Cactus.swift */; };
+		A1B2C3D4E5F60718293A4B5C /* BluetoothMeshService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4C3B2A1F0E9D8C7B6A59483 /* BluetoothMeshService.swift */; };
 		72FB70D9CC71AE84C1FAC19B /* TacNetApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 477E1CE86B91D0FB9556A590 /* TacNetApp.swift */; };
 		755B2109433A1DE815E1A11F /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8CB01F5E99AEAA1D250F4F26 /* AVFoundation.framework */; };
 		8325E27D29419CA6CD6908C5 /* CoreLocation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 80024568731CDCB04A01CE89 /* CoreLocation.framework */; };
@@ -59,6 +60,7 @@
 		8451F9C07E853485C45F4F99 /* CoreBluetooth.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreBluetooth.framework; path = System/Library/Frameworks/CoreBluetooth.framework; sourceTree = "<group>"; };
 		8CB01F5E99AEAA1D250F4F26 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = "<group>"; };
 		942FCEBF9EBF2DBA591798EC /* Cactus.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Cactus.swift; sourceTree = "<group>"; };
+		D4C3B2A1F0E9D8C7B6A59483 /* BluetoothMeshService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BluetoothMeshService.swift; sourceTree = "<group>"; };
 		AF5403C7E7D4A6DEFDECBC54 /* TacNetTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TacNetTests.swift; sourceTree = "<group>"; };
 		B523C85320FDF451CB0C1868 /* CactusFunctionProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CactusFunctionProbe.swift; sourceTree = "<group>"; };
 		BC80363B64F4B07E7F424CCD /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
@@ -144,6 +146,7 @@
 			isa = PBXGroup;
 			children = (
 				942FCEBF9EBF2DBA591798EC /* Cactus.swift */,
+				D4C3B2A1F0E9D8C7B6A59483 /* BluetoothMeshService.swift */,
 			);
 			name = Services;
 			path = Services;
@@ -313,6 +316,7 @@
 				72FB70D9CC71AE84C1FAC19B /* TacNetApp.swift in Sources */,
 				DCDED2D71C5E58146B3EF85E /* ContentView.swift in Sources */,
 				6CDA0F05E8151523EE2CE29F /* Cactus.swift in Sources */,
+				A1B2C3D4E5F60718293A4B5C /* BluetoothMeshService.swift in Sources */,
 				C15F1E37C9232822B5AD9CB0 /* FrameworkImportsProbe.swift in Sources */,
 				1DCCC616FCABDDA833533698 /* CactusFunctionProbe.swift in Sources */,
 				22811F4EAE3A4C3BA68A7A21 /* DataModels.swift in Sources */,

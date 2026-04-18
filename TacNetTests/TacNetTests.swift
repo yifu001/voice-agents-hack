@@ -353,6 +353,179 @@ final class TacNetTests: XCTestCase {
         XCTAssertFalse(deduplicator.isDuplicate(messageId: ids[0]), "Oldest entries should be evicted after overflow")
     }
 
+    func testBluetoothMeshUUIDDefinitionsMatchExpectedValues() {
+        XCTAssertEqual(BluetoothMeshUUIDs.service.uuidString.uppercased(), "7B4D8C10-3A8E-4D1A-9F53-2E28D9C1A001")
+        XCTAssertEqual(BluetoothMeshUUIDs.broadcastCharacteristic.uuidString.uppercased(), "7B4D8C10-3A8E-4D1A-9F53-2E28D9C1A101")
+        XCTAssertEqual(BluetoothMeshUUIDs.compactionCharacteristic.uuidString.uppercased(), "7B4D8C10-3A8E-4D1A-9F53-2E28D9C1A102")
+        XCTAssertEqual(BluetoothMeshUUIDs.treeConfigCharacteristic.uuidString.uppercased(), "7B4D8C10-3A8E-4D1A-9F53-2E28D9C1A103")
+    }
+
+    func testBluetoothMeshServiceFloodsLocalMessagesToAllConnectedPeers() throws {
+        let transport = MockBluetoothMeshTransport()
+        let service = BluetoothMeshService(transport: transport, deduplicator: MessageDeduplicator(capacity: 1_000))
+
+        let peerA = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        let peerB = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
+        transport.emit(.connectionStateChanged(peerA, .connected))
+        transport.emit(.connectionStateChanged(peerB, .connected))
+
+        let message = makeMeshMessage(
+            id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+            ttl: 3
+        )
+        service.publish(message)
+
+        XCTAssertEqual(transport.sentPackets.count, 1)
+        let sent = try XCTUnwrap(transport.sentPackets.first)
+        XCTAssertEqual(sent.peerIDs, Set([peerA, peerB]))
+
+        let forwarded = try decodeMessage(from: sent.data)
+        XCTAssertEqual(forwarded.id, message.id)
+        XCTAssertEqual(forwarded.ttl, 3, "Locally-originated message should keep original TTL on first flood")
+    }
+
+    func testBluetoothMeshServiceDecrementsTTLOnReceiveAndRelaysToOtherPeers() throws {
+        let transport = MockBluetoothMeshTransport()
+        let service = BluetoothMeshService(transport: transport, deduplicator: MessageDeduplicator(capacity: 1_000))
+
+        let sourcePeer = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        let relayPeer1 = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
+        let relayPeer2 = UUID(uuidString: "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC")!
+        transport.emit(.connectionStateChanged(sourcePeer, .connected))
+        transport.emit(.connectionStateChanged(relayPeer1, .connected))
+        transport.emit(.connectionStateChanged(relayPeer2, .connected))
+
+        var receivedLocally: [Message] = []
+        service.onMessageReceived = { receivedLocally.append($0) }
+
+        let inbound = makeMeshMessage(
+            id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+            ttl: 2
+        )
+        let inboundData = try JSONEncoder().encode(inbound)
+        transport.emit(.receivedData(inboundData, from: sourcePeer))
+
+        XCTAssertEqual(receivedLocally.count, 1)
+        XCTAssertEqual(receivedLocally[0].ttl, 1, "TTL must decrement by one hop on receipt")
+
+        XCTAssertEqual(transport.sentPackets.count, 1)
+        let relayPacket = try XCTUnwrap(transport.sentPackets.first)
+        XCTAssertEqual(relayPacket.peerIDs, Set([relayPeer1, relayPeer2]), "Relay should exclude the source peer")
+
+        let relayed = try decodeMessage(from: relayPacket.data)
+        XCTAssertEqual(relayed.ttl, 1)
+    }
+
+    func testBluetoothMeshServiceProcessesTTL1LocallyAndDoesNotRelay() throws {
+        let transport = MockBluetoothMeshTransport()
+        let service = BluetoothMeshService(transport: transport, deduplicator: MessageDeduplicator(capacity: 1_000))
+
+        let sourcePeer = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        let otherPeer = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
+        transport.emit(.connectionStateChanged(sourcePeer, .connected))
+        transport.emit(.connectionStateChanged(otherPeer, .connected))
+
+        var receivedLocally: [Message] = []
+        service.onMessageReceived = { receivedLocally.append($0) }
+
+        let inbound = makeMeshMessage(
+            id: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!,
+            ttl: 1
+        )
+        let inboundData = try JSONEncoder().encode(inbound)
+        transport.emit(.receivedData(inboundData, from: sourcePeer))
+
+        XCTAssertEqual(receivedLocally.count, 1)
+        XCTAssertEqual(receivedLocally[0].ttl, 0, "TTL=1 should become TTL=0 after processing this hop")
+        XCTAssertEqual(transport.sentPackets.count, 0, "TTL reaching 0 must not be re-broadcast")
+    }
+
+    func testBluetoothMeshServiceDropsDuplicateInboundMessages() throws {
+        let transport = MockBluetoothMeshTransport()
+        let service = BluetoothMeshService(transport: transport, deduplicator: MessageDeduplicator(capacity: 1_000))
+
+        let sourcePeer = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        let relayPeer = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
+        transport.emit(.connectionStateChanged(sourcePeer, .connected))
+        transport.emit(.connectionStateChanged(relayPeer, .connected))
+
+        var receivedLocally: [Message] = []
+        service.onMessageReceived = { receivedLocally.append($0) }
+
+        let messageID = UUID(uuidString: "44444444-4444-4444-4444-444444444444")!
+        let inbound = makeMeshMessage(id: messageID, ttl: 3)
+        let inboundData = try JSONEncoder().encode(inbound)
+
+        transport.emit(.receivedData(inboundData, from: sourcePeer))
+        transport.emit(.receivedData(inboundData, from: relayPeer))
+
+        XCTAssertEqual(receivedLocally.count, 1, "Duplicate UUID should be ignored")
+        XCTAssertEqual(transport.sentPackets.count, 1, "Duplicate UUID should not be re-broadcast")
+    }
+
+    func testBluetoothMeshServiceStoreAndForwardFlushesOnConnect() {
+        let transport = MockBluetoothMeshTransport()
+        let service = BluetoothMeshService(transport: transport, deduplicator: MessageDeduplicator(capacity: 1_000))
+
+        let pending = makeMeshMessage(
+            id: UUID(uuidString: "55555555-5555-5555-5555-555555555555")!,
+            ttl: 3
+        )
+        service.publish(pending)
+
+        XCTAssertEqual(transport.sentPackets.count, 0, "Message should be queued when there are no connected peers")
+        XCTAssertEqual(service.pendingRelayCount, 1)
+
+        let peer = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        transport.emit(.connectionStateChanged(peer, .connected))
+
+        XCTAssertEqual(transport.sentPackets.count, 1, "Queued messages should flush when a peer connects")
+        XCTAssertEqual(transport.sentPackets[0].peerIDs, Set([peer]))
+        XCTAssertEqual(service.pendingRelayCount, 0)
+    }
+
+    func testBluetoothMeshServiceTracksPeerConnectionStateTransitions() {
+        let transport = MockBluetoothMeshTransport()
+        let service = BluetoothMeshService(transport: transport, deduplicator: MessageDeduplicator(capacity: 1_000))
+
+        let peer = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+        XCTAssertEqual(service.connectionState(for: peer), .disconnected)
+        XCTAssertTrue(service.connectedPeerIDs.isEmpty)
+
+        transport.emit(.connectionStateChanged(peer, .connected))
+        XCTAssertEqual(service.connectionState(for: peer), .connected)
+        XCTAssertEqual(service.connectedPeerIDs, Set([peer]))
+
+        transport.emit(.connectionStateChanged(peer, .disconnected))
+        XCTAssertEqual(service.connectionState(for: peer), .disconnected)
+        XCTAssertTrue(service.connectedPeerIDs.isEmpty)
+    }
+
+    private func makeMeshMessage(
+        id: UUID = UUID(),
+        ttl: Int,
+        type: Message.MessageType = .broadcast
+    ) -> Message {
+        Message.make(
+            id: id,
+            type: type,
+            senderID: "node-alpha",
+            senderRole: "leaf",
+            parentID: "node-parent",
+            treeLevel: 2,
+            ttl: ttl,
+            encrypted: false,
+            latitude: 10.0,
+            longitude: 20.0,
+            accuracy: 3.0,
+            transcript: "test-message"
+        )
+    }
+
+    private func decodeMessage(from data: Data) throws -> Message {
+        try JSONDecoder().decode(Message.self, from: data)
+    }
+
     private func makeFixtureTree() -> TreeNode {
         TreeNode(
             id: "root",
@@ -388,5 +561,28 @@ final class TacNetTests: XCTestCase {
 
     private func deterministicUUID(from value: Int) -> UUID {
         UUID(uuidString: String(format: "00000000-0000-0000-0000-%012X", value))!
+    }
+}
+
+private final class MockBluetoothMeshTransport: BluetoothMeshTransporting {
+    struct SentPacket {
+        let data: Data
+        let messageType: Message.MessageType
+        let peerIDs: Set<UUID>
+    }
+
+    var eventHandler: ((BluetoothMeshTransportEvent) -> Void)?
+    private(set) var sentPackets: [SentPacket] = []
+
+    func start() {}
+
+    func stop() {}
+
+    func send(_ data: Data, messageType: Message.MessageType, to peerIDs: Set<UUID>) {
+        sentPackets.append(SentPacket(data: data, messageType: messageType, peerIDs: peerIDs))
+    }
+
+    func emit(_ event: BluetoothMeshTransportEvent) {
+        eventHandler?(event)
     }
 }
