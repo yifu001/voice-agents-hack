@@ -1932,19 +1932,27 @@ final class TreeSyncService: ObservableObject {
     @Published private(set) var localConfig: NetworkConfig?
 
     private let meshService: BluetoothMeshService
+    private let configStore: NetworkConfigStore?
 
-    init(meshService: BluetoothMeshService = BluetoothMeshService()) {
+    init(
+        meshService: BluetoothMeshService = BluetoothMeshService(),
+        configStore: NetworkConfigStore? = nil
+    ) {
         self.meshService = meshService
+        self.configStore = configStore
+        self.localConfig = configStore?.load()
     }
 
     func setLocalConfig(_ config: NetworkConfig?) {
         localConfig = config
+        persistLocalConfig(config)
     }
 
     @discardableResult
     func converge(with incoming: NetworkConfig) -> TreeSyncConvergenceResult {
         guard let localConfig else {
             self.localConfig = incoming
+            persistLocalConfig(incoming)
             return .adoptedInitial(version: incoming.version)
         }
 
@@ -1965,6 +1973,7 @@ final class TreeSyncService: ObservableObject {
             into: incoming.tree
         )
         self.localConfig = mergedIncoming
+        persistLocalConfig(mergedIncoming)
         return .replacedWithHigherVersion(
             previousVersion: localConfig.version,
             appliedVersion: mergedIncoming.version
@@ -2000,7 +2009,20 @@ final class TreeSyncService: ObservableObject {
         }
 
         localConfig = remoteConfig
+        persistLocalConfig(remoteConfig)
         return remoteConfig
+    }
+
+    private func persistLocalConfig(_ config: NetworkConfig?) {
+        guard let configStore else {
+            return
+        }
+
+        if let config {
+            try? configStore.save(config)
+        } else {
+            configStore.clear()
+        }
     }
 
     private static func treeByPreservingClaims(from localTree: TreeNode, into incomingTree: TreeNode) -> TreeNode {
@@ -2346,6 +2368,34 @@ final class RoleClaimService: ObservableObject {
             if let originalParentID {
                 _ = appendChild(detachedNode, toParentID: originalParentID, in: &config.tree)
             }
+            return false
+        }
+
+        config.version += 1
+        applyUpdatedConfig(config)
+        publishTreeUpdate(changedNodeID: nodeID, in: config)
+        return true
+    }
+
+    @discardableResult
+    func reorderNode(nodeID: String, beforeSiblingID: String) -> Bool {
+        guard isOrganiser, var config = networkConfig else {
+            return false
+        }
+
+        guard nodeID != beforeSiblingID,
+              nodeID != config.tree.id,
+              beforeSiblingID != config.tree.id else {
+            return false
+        }
+
+        guard let sourceParentID = TreeHelpers.parent(of: nodeID, in: config.tree)?.id,
+              let targetParentID = TreeHelpers.parent(of: beforeSiblingID, in: config.tree)?.id,
+              sourceParentID == targetParentID else {
+            return false
+        }
+
+        guard reorderSiblingNode(nodeID: nodeID, beforeSiblingID: beforeSiblingID, in: &config.tree) else {
             return false
         }
 
@@ -2831,6 +2881,30 @@ final class RoleClaimService: ObservableObject {
 
         for child in tree.children {
             if treeContainsNode(withID: nodeID, in: child) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    @discardableResult
+    private func reorderSiblingNode(nodeID: String, beforeSiblingID: String, in tree: inout TreeNode) -> Bool {
+        let childIDs = tree.children.map(\.id)
+        if let fromIndex = childIDs.firstIndex(of: nodeID),
+           let toIndex = childIDs.firstIndex(of: beforeSiblingID) {
+            guard fromIndex != toIndex else {
+                return false
+            }
+
+            let movingNode = tree.children.remove(at: fromIndex)
+            let destinationIndex = fromIndex < toIndex ? max(0, toIndex - 1) : toIndex
+            tree.children.insert(movingNode, at: destinationIndex)
+            return true
+        }
+
+        for index in tree.children.indices {
+            if reorderSiblingNode(nodeID: nodeID, beforeSiblingID: beforeSiblingID, in: &tree.children[index]) {
                 return true
             }
         }

@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var bootstrapViewModel = AppBootstrapViewModel()
@@ -255,7 +256,8 @@ struct TreeBuilderView: View {
                         TreeNodeTreeView(
                             node: viewModel.networkConfig.tree,
                             depth: 0,
-                            selectedNodeID: selectedNodeID
+                            selectedNodeID: selectedNodeID,
+                            onDropNode: handleTreeNodeDrop
                         ) { node in
                             selectedNodeID = node.id
                             renameDraft = node.label
@@ -351,6 +353,33 @@ struct TreeBuilderView: View {
         }
     }
 
+    private func handleTreeNodeDrop(draggedNodeID: String, onto targetNodeID: String) -> Bool {
+        guard draggedNodeID != targetNodeID else {
+            return false
+        }
+
+        let treeSnapshot = viewModel.networkConfig.tree
+        let sourceParentID = TreeHelpers.parent(of: draggedNodeID, in: treeSnapshot)?.id
+        let targetParentID = TreeHelpers.parent(of: targetNodeID, in: treeSnapshot)?.id
+
+        let didApplyDrop: Bool
+        if let sourceParentID, sourceParentID == targetParentID {
+            didApplyDrop = viewModel.reorderNode(nodeID: draggedNodeID, beforeSiblingID: targetNodeID)
+        } else {
+            didApplyDrop = viewModel.moveNode(nodeID: draggedNodeID, newParentID: targetNodeID)
+        }
+
+        guard didApplyDrop else {
+            return false
+        }
+
+        selectedNodeID = draggedNodeID
+        if let movedNode = viewModel.node(withID: draggedNodeID) {
+            renameDraft = movedNode.label
+        }
+        return true
+    }
+
     private var selectedNodeSummary: String {
         guard
             let selectedNodeID,
@@ -368,6 +397,7 @@ private struct TreeNodeTreeView: View {
     let node: TreeNode
     let depth: Int
     let selectedNodeID: String?
+    let onDropNode: (String, String) -> Bool
     let onSelect: (TreeNode) -> Void
 
     var body: some View {
@@ -397,16 +427,40 @@ private struct TreeNodeTreeView: View {
             }
             .buttonStyle(.plain)
             .padding(.leading, CGFloat(depth) * 16)
+            .onDrag {
+                onSelect(node)
+                return NSItemProvider(object: node.id as NSString)
+            }
+            .onDrop(of: [UTType.plainText], isTargeted: nil) { providers in
+                performDrop(providers: providers, targetNodeID: node.id)
+            }
 
             ForEach(node.children, id: \.id) { child in
                 TreeNodeTreeView(
                     node: child,
                     depth: depth + 1,
                     selectedNodeID: selectedNodeID,
+                    onDropNode: onDropNode,
                     onSelect: onSelect
                 )
             }
         }
+    }
+
+    private func performDrop(providers: [NSItemProvider], targetNodeID: String) -> Bool {
+        guard let provider = providers.first(where: { $0.canLoadObject(ofClass: NSString.self) }) else {
+            return false
+        }
+
+        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let sourceNodeID = object as? NSString else {
+                return
+            }
+            DispatchQueue.main.async {
+                _ = onDropNode(sourceNodeID as String, targetNodeID)
+            }
+        }
+        return true
     }
 
     private var rowBackground: Color {
@@ -1739,6 +1793,48 @@ final class SettingsViewModel: ObservableObject {
     }
 
     @discardableResult
+    func handleNodeDrop(draggedNodeID: String, onto targetNodeID: String) -> Bool {
+        guard showsOrganiserControls else {
+            statusMessage = "Only organiser can edit the tree."
+            return false
+        }
+
+        guard draggedNodeID != targetNodeID else {
+            statusMessage = "Drop target is unchanged."
+            return false
+        }
+
+        guard let tree = roleClaimService.networkConfig?.tree else {
+            statusMessage = "No tree available to edit."
+            return false
+        }
+
+        let sourceParentID = TreeHelpers.parent(of: draggedNodeID, in: tree)?.id
+        let targetParentID = TreeHelpers.parent(of: targetNodeID, in: tree)?.id
+
+        let didApplyDrop: Bool
+        if let sourceParentID, sourceParentID == targetParentID {
+            didApplyDrop = roleClaimService.reorderNode(nodeID: draggedNodeID, beforeSiblingID: targetNodeID)
+            statusMessage = didApplyDrop
+                ? "Reordered \(draggedNodeID)."
+                : "Unable to reorder dragged node."
+        } else {
+            didApplyDrop = roleClaimService.moveNode(nodeID: draggedNodeID, newParentID: targetNodeID)
+            statusMessage = didApplyDrop
+                ? "Moved \(draggedNodeID) under \(targetNodeID)."
+                : "Unable to move dragged node."
+        }
+
+        guard didApplyDrop else {
+            return false
+        }
+
+        selectedNodeID = draggedNodeID
+        synchronizeSelectionAndTargets()
+        return true
+    }
+
+    @discardableResult
     func promoteSelectedNode() -> Bool {
         guard showsOrganiserControls else {
             statusMessage = "Only organiser can promote roles."
@@ -2025,6 +2121,13 @@ private struct SettingsTreeEditorView: View {
                                         .padding(.leading, CGFloat(row.depth) * 14)
                                     }
                                     .buttonStyle(.plain)
+                                    .onDrag {
+                                        viewModel.selectNode(row.id)
+                                        return NSItemProvider(object: row.id as NSString)
+                                    }
+                                    .onDrop(of: [UTType.plainText], isTargeted: nil) { providers in
+                                        performDrop(providers: providers, targetNodeID: row.id)
+                                    }
                                 }
                             }
                         }
@@ -2074,6 +2177,23 @@ private struct SettingsTreeEditorView: View {
                 }
             }
         }
+    }
+
+    private func performDrop(providers: [NSItemProvider], targetNodeID: String) -> Bool {
+        guard let provider = providers.first(where: { $0.canLoadObject(ofClass: NSString.self) }) else {
+            return false
+        }
+
+        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let sourceNodeID = object as? NSString else {
+                return
+            }
+            DispatchQueue.main.async {
+                _ = viewModel.handleNodeDrop(draggedNodeID: sourceNodeID as String, onto: targetNodeID)
+            }
+        }
+
+        return true
     }
 }
 
@@ -2696,7 +2816,10 @@ final class AppNetworkCoordinator: ObservableObject {
         afterActionReviewViewModel = AfterActionReviewViewModel(store: reviewStore)
 
         discoveryService = NetworkDiscoveryService(meshService: meshService)
-        treeSyncService = TreeSyncService(meshService: meshService)
+        treeSyncService = TreeSyncService(
+            meshService: meshService,
+            configStore: NetworkConfigStore(storageKey: "TacNet.NetworkConfig.Live")
+        )
         roleClaimService = RoleClaimService(
             meshService: meshService,
             treeSyncService: treeSyncService,

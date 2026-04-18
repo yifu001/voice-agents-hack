@@ -952,6 +952,39 @@ final class TacNetTests: XCTestCase {
         XCTAssertEqual(Array(viewModel.versionHistory.suffix(editCount)), expectedVersions, "Concurrent edits should still produce a strictly monotonic, gap-free version sequence")
     }
 
+    func testTreeBuilderDragDropReorderSiblingsUpdatesOrderAndVersion() throws {
+        let viewModel = TreeBuilderViewModel(networkName: "Operation Nightfall", createdBy: "organiser-device")
+        let rootID = viewModel.networkConfig.tree.id
+
+        let alpha = try XCTUnwrap(viewModel.addNode(parentID: rootID, label: "Alpha"))
+        let bravo = try XCTUnwrap(viewModel.addNode(parentID: rootID, label: "Bravo"))
+        let charlie = try XCTUnwrap(viewModel.addNode(parentID: rootID, label: "Charlie"))
+
+        let versionBeforeReorder = viewModel.currentVersion
+        XCTAssertTrue(viewModel.reorderNode(nodeID: charlie.id, beforeSiblingID: alpha.id))
+        XCTAssertEqual(viewModel.currentVersion, versionBeforeReorder + 1)
+
+        let orderedChildren = TreeHelpers.children(of: rootID, in: viewModel.networkConfig.tree).map(\.id)
+        XCTAssertEqual(orderedChildren, [charlie.id, alpha.id, bravo.id], "Dragging Charlie above Alpha should reorder siblings to [Charlie, Alpha, Bravo]")
+    }
+
+    func testTreeBuilderDragDropReparentMovesNodeAndPreservesSubtree() throws {
+        let viewModel = TreeBuilderViewModel(networkName: "Operation Nightfall", createdBy: "organiser-device")
+        let rootID = viewModel.networkConfig.tree.id
+
+        let alpha = try XCTUnwrap(viewModel.addNode(parentID: rootID, label: "Alpha"))
+        let alphaChild = try XCTUnwrap(viewModel.addNode(parentID: alpha.id, label: "Alpha-1"))
+        let bravo = try XCTUnwrap(viewModel.addNode(parentID: rootID, label: "Bravo"))
+
+        let versionBeforeMove = viewModel.currentVersion
+        XCTAssertTrue(viewModel.moveNode(nodeID: alpha.id, newParentID: bravo.id))
+        XCTAssertEqual(viewModel.currentVersion, versionBeforeMove + 1)
+
+        let movedParentID = TreeHelpers.parent(of: alpha.id, in: viewModel.networkConfig.tree)?.id
+        XCTAssertEqual(movedParentID, bravo.id)
+        XCTAssertEqual(TreeHelpers.parent(of: alphaChild.id, in: viewModel.networkConfig.tree)?.id, alpha.id, "Reparenting should preserve the dragged node's subtree")
+    }
+
     @MainActor
     func testTreeSyncServiceHigherVersionWinsAndLowerVersionDiscarded() async {
         let transport = MockBluetoothMeshTransport()
@@ -1994,6 +2027,89 @@ final class TacNetTests: XCTestCase {
         let promoteMessage = try decodeMessage(from: context.transport.sentPackets[0].data)
         XCTAssertEqual(promoteMessage.type, .promote)
         XCTAssertEqual(promoteMessage.payload.targetNodeID, "alpha")
+    }
+
+    @MainActor
+    func testSettingsTreeEditorDragDropReparentBroadcastsTreeUpdate() throws {
+        let context = makeRoleClaimContextForSettings(
+            localDeviceID: "organiser-device",
+            createdBy: "organiser-device"
+        )
+        let viewModel = SettingsViewModel(roleClaimService: context.roleService)
+
+        XCTAssertTrue(viewModel.handleNodeDrop(draggedNodeID: "alpha-1", onto: "bravo"))
+
+        let updatedConfig = try XCTUnwrap(context.syncService.localConfig)
+        XCTAssertEqual(TreeHelpers.parent(of: "alpha-1", in: updatedConfig.tree)?.id, "bravo")
+
+        XCTAssertEqual(context.transport.sentPackets.count, 1)
+        let treeUpdate = try decodeMessage(from: context.transport.sentPackets[0].data)
+        XCTAssertEqual(treeUpdate.type, .treeUpdate)
+        let updatedTree = try XCTUnwrap(treeUpdate.payload.tree)
+        XCTAssertEqual(TreeHelpers.parent(of: "alpha-1", in: updatedTree)?.id, "bravo")
+    }
+
+    @MainActor
+    func testSettingsTreeEditorDragDropReorderBroadcastsTreeUpdateAndPersistsAcrossRestart() throws {
+        let suiteName = "TacNetTests.NetworkConfigStore.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let networkConfigStore = NetworkConfigStore(
+            defaults: defaults,
+            storageKey: "TacNetTests.NetworkConfigStore.TreeOrder"
+        )
+
+        let transport = MockBluetoothMeshTransport()
+        let meshService = BluetoothMeshService(
+            transport: transport,
+            deduplicator: MessageDeduplicator(capacity: 1_000)
+        )
+        let treeSyncService = TreeSyncService(meshService: meshService, configStore: networkConfigStore)
+        transport.emit(
+            .connectionStateChanged(
+                UUID(uuidString: "D0D0D0D0-0000-0000-0000-000000000002")!,
+                .connected
+            )
+        )
+
+        var config = NetworkConfig(
+            networkName: "TacNet Settings",
+            networkID: UUID(uuidString: "DEADBEEF-CAFE-BABE-FADE-000000000002")!,
+            createdBy: "organiser-device",
+            pinHash: nil,
+            version: 1,
+            tree: makeFixtureTree()
+        )
+        treeSyncService.setLocalConfig(config)
+
+        let roleService = RoleClaimService(
+            meshService: meshService,
+            treeSyncService: treeSyncService,
+            localDeviceID: "organiser-device",
+            disconnectTimeout: 60
+        )
+        let viewModel = SettingsViewModel(roleClaimService: roleService)
+
+        XCTAssertTrue(viewModel.handleNodeDrop(draggedNodeID: "charlie", onto: "alpha"))
+
+        config = try XCTUnwrap(treeSyncService.localConfig)
+        XCTAssertEqual(TreeHelpers.children(of: "root", in: config.tree).map(\.id), ["charlie", "alpha", "bravo"])
+
+        XCTAssertEqual(transport.sentPackets.count, 1)
+        let treeUpdate = try decodeMessage(from: transport.sentPackets[0].data)
+        XCTAssertEqual(treeUpdate.type, .treeUpdate)
+        let updatedTree = try XCTUnwrap(treeUpdate.payload.tree)
+        XCTAssertEqual(TreeHelpers.children(of: "root", in: updatedTree).map(\.id), ["charlie", "alpha", "bravo"])
+
+        let restartedMesh = BluetoothMeshService(
+            transport: MockBluetoothMeshTransport(),
+            deduplicator: MessageDeduplicator(capacity: 1_000)
+        )
+        let restartedTreeSyncService = TreeSyncService(meshService: restartedMesh, configStore: networkConfigStore)
+        let restartedConfig = try XCTUnwrap(restartedTreeSyncService.localConfig)
+        XCTAssertEqual(TreeHelpers.children(of: "root", in: restartedConfig.tree).map(\.id), ["charlie", "alpha", "bravo"])
     }
 
     @MainActor

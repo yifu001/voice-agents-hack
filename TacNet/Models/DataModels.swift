@@ -409,6 +409,32 @@ struct NodeIdentityStore {
     }
 }
 
+struct NetworkConfigStore {
+    private let defaults: UserDefaults
+    private let storageKey: String
+
+    init(defaults: UserDefaults = .standard, storageKey: String = "TacNet.NetworkConfig") {
+        self.defaults = defaults
+        self.storageKey = storageKey
+    }
+
+    func save(_ config: NetworkConfig) throws {
+        let data = try JSONEncoder().encode(config)
+        defaults.set(data, forKey: storageKey)
+    }
+
+    func load() -> NetworkConfig? {
+        guard let data = defaults.data(forKey: storageKey) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(NetworkConfig.self, from: data)
+    }
+
+    func clear() {
+        defaults.removeObject(forKey: storageKey)
+    }
+}
+
 struct AfterActionReviewMessage: Identifiable, Equatable, Sendable {
     let id: UUID
     let senderID: String
@@ -821,6 +847,67 @@ final class TreeBuilderViewModel: ObservableObject, @unchecked Sendable {
     }
 
     @discardableResult
+    func moveNode(nodeID: String, newParentID: String) -> Bool {
+        withLock {
+            var updatedConfig = networkConfig
+
+            guard nodeID != updatedConfig.tree.id, nodeID != newParentID else {
+                return false
+            }
+
+            guard let nodeToMove = Self.findNode(withID: nodeID, in: updatedConfig.tree),
+                  Self.findNode(withID: newParentID, in: updatedConfig.tree) != nil,
+                  !Self.treeContainsNode(withID: newParentID, in: nodeToMove) else {
+                return false
+            }
+
+            let originalParentID = TreeHelpers.parent(of: nodeID, in: updatedConfig.tree)?.id
+            guard let detachedNode = Self.detachNode(nodeID: nodeID, from: &updatedConfig.tree) else {
+                return false
+            }
+
+            guard Self.appendChild(detachedNode, toParentID: newParentID, in: &updatedConfig.tree) else {
+                if let originalParentID {
+                    _ = Self.appendChild(detachedNode, toParentID: originalParentID, in: &updatedConfig.tree)
+                }
+                return false
+            }
+
+            commitMutation(updatedConfig)
+            return true
+        }
+    }
+
+    @discardableResult
+    func reorderNode(nodeID: String, beforeSiblingID: String) -> Bool {
+        withLock {
+            guard nodeID != beforeSiblingID else {
+                return false
+            }
+
+            var updatedConfig = networkConfig
+
+            guard nodeID != updatedConfig.tree.id,
+                  beforeSiblingID != updatedConfig.tree.id else {
+                return false
+            }
+
+            guard let sourceParentID = TreeHelpers.parent(of: nodeID, in: updatedConfig.tree)?.id,
+                  let targetParentID = TreeHelpers.parent(of: beforeSiblingID, in: updatedConfig.tree)?.id,
+                  sourceParentID == targetParentID else {
+                return false
+            }
+
+            guard Self.reorderNode(nodeID: nodeID, beforeSiblingID: beforeSiblingID, in: &updatedConfig.tree) else {
+                return false
+            }
+
+            commitMutation(updatedConfig)
+            return true
+        }
+    }
+
+    @discardableResult
     func updateNetworkName(_ networkName: String) -> Bool {
         withLock {
             let normalized = Self.normalizedNetworkName(networkName)
@@ -977,6 +1064,21 @@ final class TreeBuilderViewModel: ObservableObject, @unchecked Sendable {
         return false
     }
 
+    @discardableResult
+    private static func detachNode(nodeID: String, from tree: inout TreeNode) -> TreeNode? {
+        if let index = tree.children.firstIndex(where: { $0.id == nodeID }) {
+            return tree.children.remove(at: index)
+        }
+
+        for index in tree.children.indices {
+            if let detachedNode = detachNode(nodeID: nodeID, from: &tree.children[index]) {
+                return detachedNode
+            }
+        }
+
+        return nil
+    }
+
     private static func renameNode(nodeID: String, newLabel: String, in tree: inout TreeNode) -> Bool {
         if tree.id == nodeID {
             tree.label = newLabel
@@ -985,6 +1087,60 @@ final class TreeBuilderViewModel: ObservableObject, @unchecked Sendable {
 
         for index in tree.children.indices {
             if renameNode(nodeID: nodeID, newLabel: newLabel, in: &tree.children[index]) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    @discardableResult
+    private static func appendChild(_ child: TreeNode, toParentID parentID: String, in tree: inout TreeNode) -> Bool {
+        if tree.id == parentID {
+            tree.children.append(child)
+            return true
+        }
+
+        for index in tree.children.indices {
+            if appendChild(child, toParentID: parentID, in: &tree.children[index]) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private static func treeContainsNode(withID nodeID: String, in tree: TreeNode) -> Bool {
+        if tree.id == nodeID {
+            return true
+        }
+
+        for child in tree.children {
+            if treeContainsNode(withID: nodeID, in: child) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    @discardableResult
+    private static func reorderNode(nodeID: String, beforeSiblingID: String, in tree: inout TreeNode) -> Bool {
+        let childIDs = tree.children.map(\.id)
+        if let fromIndex = childIDs.firstIndex(of: nodeID),
+           let toIndex = childIDs.firstIndex(of: beforeSiblingID) {
+            guard fromIndex != toIndex else {
+                return false
+            }
+
+            let movingNode = tree.children.remove(at: fromIndex)
+            let destinationIndex = fromIndex < toIndex ? max(0, toIndex - 1) : toIndex
+            tree.children.insert(movingNode, at: destinationIndex)
+            return true
+        }
+
+        for index in tree.children.indices {
+            if reorderNode(nodeID: nodeID, beforeSiblingID: beforeSiblingID, in: &tree.children[index]) {
                 return true
             }
         }
