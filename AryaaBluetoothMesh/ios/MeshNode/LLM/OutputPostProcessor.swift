@@ -1,5 +1,5 @@
 // OutputPostProcessor.swift
-// TacNet
+// MeshNode
 //
 // Post-processes every Gemma 4 E4B SLM output before it reaches AVSpeechSynthesizer.
 // Pipeline position: Cactus inference output → OutputPostProcessor → TextToSpeechService.

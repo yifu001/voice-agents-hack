@@ -17,6 +17,17 @@ final class LLMService: ObservableObject {
     private var model: CactusModelT?
     private let loadQueue = DispatchQueue(label: "cactus.load", qos: .userInitiated)
     private let inferenceQueue = DispatchQueue(label: "cactus.infer", qos: .userInitiated)
+    private let postProcessor = OutputPostProcessor()
+
+    /// The TacNet soul persona loaded from the bundled soul.md resource.
+    static let soulPrompt: String = {
+        guard let url = Bundle.main.url(forResource: "soul", withExtension: "md"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else {
+            log.warning("soul.md not found in bundle — using fallback persona")
+            return "You are TacNet Personal AI. You are a terse signal relay and compactor. Output is TTS-destined. Be brief. No emoji, no markdown. Maximum 20 words per relay sentence."
+        }
+        return text
+    }()
 
     var isReady: Bool { state == .ready }
 
@@ -78,23 +89,31 @@ final class LLMService: ObservableObject {
         }
     }
 
-    func summarise(_ text: String) async -> String {
-        let prompt = """
-        You are a terse paraphraser. Rewrite the following chat message as a very short third-person summary — at most 12 words. Never quote or repeat the message verbatim. No preamble, no quotes, no commentary. Output only the paraphrased summary.
+    func summarise(_ text: String, role: OutputPostProcessor.EarpieceRole = .summary) async -> String {
+        // Merge soul into the user turn so it works even if the model's chat
+        // template ignores the system role (Gemma has no native system turn).
+        let userPrompt = """
+        \(Self.soulPrompt)
+
+        --- TASK ---
+        Compact the following operator message into a terse third-person relay. \
+        Max \(role.wordCap) words. No preamble, no quotes, no commentary. \
+        Output only the compacted relay.
 
         Message:
         \(text)
 
-        Summary:
+        Relay:
         """
         let messages: [[String: String]] = [
-            ["role": "user", "content": prompt],
+            ["role": "user", "content": userPrompt],
         ]
         var out = ""
         for await token in completeStream(messages: messages, maxTokens: 60, temperature: 0.2) {
             out += token
         }
-        return out.trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw = out.trimmingCharacters(in: .whitespacesAndNewlines)
+        return postProcessor.process(raw, role: role)
     }
 
     deinit {

@@ -14,8 +14,11 @@ targets:
         excludes:
           - "Models"
           - "Models/**"
+          - "soul.md"
       - path: MeshNode/Models
         type: folder
+        buildPhase: resources
+      - path: MeshNode/soul.md
         buildPhase: resources
     dependencies:
       - framework: Vendor/cactus-ios.xcframework

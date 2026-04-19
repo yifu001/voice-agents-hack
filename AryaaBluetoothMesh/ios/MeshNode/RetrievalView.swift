@@ -12,6 +12,8 @@ struct RetrievalView: View {
     @State private var isStreaming: Bool = false
     @State private var streamTask: Task<Void, Never>?
 
+    private let postProcessor = OutputPostProcessor()
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -193,27 +195,31 @@ struct RetrievalView: View {
         let reachableList = reachable.map { String($0.prefix(6)) }
             .sorted().joined(separator: ", ")
 
-        let prompt = """
+        let userPrompt = """
         Nodes: \(reachableList)
         --- Chat context (recent) ---
         \(contextBlock)
         --- Question ---
         \(trimmed)
-        Answer concisely.
+        Answer concisely in Ranger-net register. Max 20 words.
         """
 
-        composedPrompt = prompt
+        composedPrompt = userPrompt
         answer = ""
         isStreaming = true
 
         streamTask = Task {
+            // Merge soul into user turn — Gemma has no native system role.
+            let fullPrompt = LLMService.soulPrompt + "\n\n--- TASK ---\n" + userPrompt
             let messages: [[String: String]] = [
-                ["role": "user", "content": prompt],
+                ["role": "user", "content": fullPrompt],
             ]
+            var raw = ""
             for await token in llm.completeStream(messages: messages, maxTokens: 256) {
                 if Task.isCancelled { break }
-                answer += token
+                raw += token
             }
+            answer = postProcessor.process(raw, role: .leader)
             isStreaming = false
         }
     }
