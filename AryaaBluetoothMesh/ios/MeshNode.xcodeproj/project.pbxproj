@@ -7,44 +7,142 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1C97881D991F23C6CF69F9AF /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CE7DAEED7B03E17B061D95D /* AudioRecorder.swift */; };
+		28199ED8DD5E2D21A5BB9D03 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7D61192EE9E86FB5BB81B97 /* SettingsView.swift */; };
 		2C5EB5211A3783A603ACC262 /* MeshCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B3D9D836E3DA3F39B7A419A /* MeshCache.swift */; };
+		356FC2802476F36F3D46A180 /* Models in Resources */ = {isa = PBXBuildFile; fileRef = 1362FBB4E08B776CF2F564B3 /* Models */; };
+		3D186CB4449783D4E4CFB7B1 /* SummaryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4FC9E0D656ECE801E93156 /* SummaryStore.swift */; };
 		3F40690ABBCB0F18FAACC3A8 /* MeshCentral.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CA35AE9D2BBBE3A46684A26 /* MeshCentral.swift */; };
 		47E050BD30A1DDE3452FD4E3 /* MeshConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E8F6F293E1385061DA187AE /* MeshConstants.swift */; };
+		56D70F34F6E09BBC9D62DDDD /* KeyboardDismiss.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36FA89C894AF084706D8E89B /* KeyboardDismiss.swift */; };
+		58A8AB7554918DD8599F7ACF /* STTService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0AE4C8DD97155C227733E5D /* STTService.swift */; };
+		63351482E29FB3A8E40F60B8 /* cactus-ios.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = B756C15CD7B4C16BA72B3ADB /* cactus-ios.xcframework */; };
+		65CDCFED1E4D3EAB465B5A05 /* graph_undirected.json in Resources */ = {isa = PBXBuildFile; fileRef = 6E5E3DCF4AB4270CF5D4B7A2 /* graph_undirected.json */; };
+		7C71B9CDE3D622FF66AE06EA /* NodeIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B77A39D130F38F614BD7B03 /* NodeIdentity.swift */; };
 		896D4F4398F31BF2F8A8DC1D /* MeshMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60974A85F2A6A5C81E1246A1 /* MeshMessage.swift */; };
+		98E409FEE1D052810F15B800 /* RetrievalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05968F9A818F5EABA86D4001 /* RetrievalView.swift */; };
+		A469B30C03553642825A47B5 /* STTStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A2E0FE7145FFACDEB3232A /* STTStatusBar.swift */; };
+		A4E70806D215F79F27420C68 /* NodeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1540DA1A880968B8654840 /* NodeSelectionView.swift */; };
 		A67AA2B1A2D111A6208B8D57 /* MeshManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30D29A78DC6BCA46769DFAFB /* MeshManager.swift */; };
+		C5A187F2B33AB91318242F79 /* cactus-ios.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B756C15CD7B4C16BA72B3ADB /* cactus-ios.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		C606BDC3EFEFB96B51CB9D35 /* LLMService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39DA7F94564B939431B8D70B /* LLMService.swift */; };
 		C9D9A4943A086F83A27EFFC9 /* MeshPeripheral.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0350DACFB7EF35C5C6E781 /* MeshPeripheral.swift */; };
+		D0CAC7E056CB2B0D91267690 /* graph.json in Resources */ = {isa = PBXBuildFile; fileRef = 7ADDC4DB706DD2CA6525A239 /* graph.json */; };
 		D940063243F8C733F6C6D5AD /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 682C14444F4CCC47633B6B84 /* ContentView.swift */; };
+		DA0D1EE7857C6A4D5FA13603 /* MicButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034B00B29E704C3560FA7E6C /* MicButton.swift */; };
+		E38D139F3AB9B9081874FC86 /* Cactus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9195C650B42985DD5E272B1 /* Cactus.swift */; };
 		EA1CD9826EA66BF3DAF2CF1D /* MeshNodeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91A71F1D740DCC4B8988C230 /* MeshNodeApp.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		26BC6FA83DC79C4D1251FBA0 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				C5A187F2B33AB91318242F79 /* cactus-ios.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		034B00B29E704C3560FA7E6C /* MicButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicButton.swift; sourceTree = "<group>"; };
+		05968F9A818F5EABA86D4001 /* RetrievalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetrievalView.swift; sourceTree = "<group>"; };
 		0CA35AE9D2BBBE3A46684A26 /* MeshCentral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshCentral.swift; sourceTree = "<group>"; };
+		0CE7DAEED7B03E17B061D95D /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
 		0E8F6F293E1385061DA187AE /* MeshConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshConstants.swift; sourceTree = "<group>"; };
+		1362FBB4E08B776CF2F564B3 /* Models */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Models; path = MeshNode/Models; sourceTree = SOURCE_ROOT; };
 		1B3D9D836E3DA3F39B7A419A /* MeshCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshCache.swift; sourceTree = "<group>"; };
-		27D5FC382B4C057B023CD302 /* MeshNode.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MeshNode.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		27D5FC382B4C057B023CD302 /* MeshNode.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MeshNode.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		30D29A78DC6BCA46769DFAFB /* MeshManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshManager.swift; sourceTree = "<group>"; };
+		36FA89C894AF084706D8E89B /* KeyboardDismiss.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardDismiss.swift; sourceTree = "<group>"; };
+		39DA7F94564B939431B8D70B /* LLMService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMService.swift; sourceTree = "<group>"; };
 		50461E41BEA855FBB9338A51 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		60974A85F2A6A5C81E1246A1 /* MeshMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshMessage.swift; sourceTree = "<group>"; };
 		682C14444F4CCC47633B6B84 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		6B77A39D130F38F614BD7B03 /* NodeIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeIdentity.swift; sourceTree = "<group>"; };
+		6E5E3DCF4AB4270CF5D4B7A2 /* graph_undirected.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = graph_undirected.json; sourceTree = "<group>"; };
+		7ADDC4DB706DD2CA6525A239 /* graph.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = graph.json; sourceTree = "<group>"; };
+		8D4FC9E0D656ECE801E93156 /* SummaryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryStore.swift; sourceTree = "<group>"; };
 		91A71F1D740DCC4B8988C230 /* MeshNodeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshNodeApp.swift; sourceTree = "<group>"; };
+		A1A2E0FE7145FFACDEB3232A /* STTStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = STTStatusBar.swift; sourceTree = "<group>"; };
 		AA0350DACFB7EF35C5C6E781 /* MeshPeripheral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshPeripheral.swift; sourceTree = "<group>"; };
+		AF1540DA1A880968B8654840 /* NodeSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeSelectionView.swift; sourceTree = "<group>"; };
+		B756C15CD7B4C16BA72B3ADB /* cactus-ios.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "cactus-ios.xcframework"; path = "Vendor/cactus-ios.xcframework"; sourceTree = "<group>"; };
+		B9195C650B42985DD5E272B1 /* Cactus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Cactus.swift; sourceTree = "<group>"; };
+		C0AE4C8DD97155C227733E5D /* STTService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = STTService.swift; sourceTree = "<group>"; };
+		D7D61192EE9E86FB5BB81B97 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFrameworksBuildPhase section */
+		A589C90ADBA5EE42A610DE06 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				63351482E29FB3A8E40F60B8 /* cactus-ios.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
 /* Begin PBXGroup section */
+		095F94E9C01756E6BCC7C84A /* Audio */ = {
+			isa = PBXGroup;
+			children = (
+				0CE7DAEED7B03E17B061D95D /* AudioRecorder.swift */,
+				034B00B29E704C3560FA7E6C /* MicButton.swift */,
+				A1A2E0FE7145FFACDEB3232A /* STTStatusBar.swift */,
+			);
+			path = Audio;
+			sourceTree = "<group>";
+		};
+		0E84053A289B841F6BF9D627 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				B756C15CD7B4C16BA72B3ADB /* cactus-ios.xcframework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		14A2E91770A5E5CC1D269BD8 = {
 			isa = PBXGroup;
 			children = (
 				A942E0ED20EAFD4EAF5E5EA9 /* MeshNode */,
+				0E84053A289B841F6BF9D627 /* Frameworks */,
 				B25223376C34F92612702A6C /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		7F63DEAD4A6885BE127076D9 /* LLM */ = {
+			isa = PBXGroup;
+			children = (
+				B9195C650B42985DD5E272B1 /* Cactus.swift */,
+				39DA7F94564B939431B8D70B /* LLMService.swift */,
+				C0AE4C8DD97155C227733E5D /* STTService.swift */,
+				8D4FC9E0D656ECE801E93156 /* SummaryStore.swift */,
+			);
+			path = LLM;
 			sourceTree = "<group>";
 		};
 		A942E0ED20EAFD4EAF5E5EA9 /* MeshNode */ = {
 			isa = PBXGroup;
 			children = (
 				682C14444F4CCC47633B6B84 /* ContentView.swift */,
+				6E5E3DCF4AB4270CF5D4B7A2 /* graph_undirected.json */,
+				7ADDC4DB706DD2CA6525A239 /* graph.json */,
 				50461E41BEA855FBB9338A51 /* Info.plist */,
+				36FA89C894AF084706D8E89B /* KeyboardDismiss.swift */,
 				91A71F1D740DCC4B8988C230 /* MeshNodeApp.swift */,
+				1362FBB4E08B776CF2F564B3 /* Models */,
+				6B77A39D130F38F614BD7B03 /* NodeIdentity.swift */,
+				AF1540DA1A880968B8654840 /* NodeSelectionView.swift */,
+				05968F9A818F5EABA86D4001 /* RetrievalView.swift */,
+				D7D61192EE9E86FB5BB81B97 /* SettingsView.swift */,
+				095F94E9C01756E6BCC7C84A /* Audio */,
+				7F63DEAD4A6885BE127076D9 /* LLM */,
 				E43011F0BF27E5B5082FEEC6 /* Mesh */,
 			);
 			path = MeshNode;
@@ -79,6 +177,9 @@
 			buildConfigurationList = D5A09DF317C0FD27D57CB18B /* Build configuration list for PBXNativeTarget "MeshNode" */;
 			buildPhases = (
 				C82FD2BF38DFE4A9CFCB8472 /* Sources */,
+				6D528E1DFC0D6ACE6A831C14 /* Resources */,
+				A589C90ADBA5EE42A610DE06 /* Frameworks */,
+				26BC6FA83DC79C4D1251FBA0 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -124,12 +225,29 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		6D528E1DFC0D6ACE6A831C14 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				356FC2802476F36F3D46A180 /* Models in Resources */,
+				D0CAC7E056CB2B0D91267690 /* graph.json in Resources */,
+				65CDCFED1E4D3EAB465B5A05 /* graph_undirected.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		C82FD2BF38DFE4A9CFCB8472 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1C97881D991F23C6CF69F9AF /* AudioRecorder.swift in Sources */,
+				E38D139F3AB9B9081874FC86 /* Cactus.swift in Sources */,
 				D940063243F8C733F6C6D5AD /* ContentView.swift in Sources */,
+				56D70F34F6E09BBC9D62DDDD /* KeyboardDismiss.swift in Sources */,
+				C606BDC3EFEFB96B51CB9D35 /* LLMService.swift in Sources */,
 				2C5EB5211A3783A603ACC262 /* MeshCache.swift in Sources */,
 				3F40690ABBCB0F18FAACC3A8 /* MeshCentral.swift in Sources */,
 				47E050BD30A1DDE3452FD4E3 /* MeshConstants.swift in Sources */,
@@ -137,6 +255,14 @@
 				896D4F4398F31BF2F8A8DC1D /* MeshMessage.swift in Sources */,
 				EA1CD9826EA66BF3DAF2CF1D /* MeshNodeApp.swift in Sources */,
 				C9D9A4943A086F83A27EFFC9 /* MeshPeripheral.swift in Sources */,
+				DA0D1EE7857C6A4D5FA13603 /* MicButton.swift in Sources */,
+				7C71B9CDE3D622FF66AE06EA /* NodeIdentity.swift in Sources */,
+				A4E70806D215F79F27420C68 /* NodeSelectionView.swift in Sources */,
+				98E409FEE1D052810F15B800 /* RetrievalView.swift in Sources */,
+				58A8AB7554918DD8599F7ACF /* STTService.swift in Sources */,
+				A469B30C03553642825A47B5 /* STTStatusBar.swift in Sources */,
+				28199ED8DD5E2D21A5BB9D03 /* SettingsView.swift in Sources */,
+				3D186CB4449783D4E4CFB7B1 /* SummaryStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -213,6 +339,12 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R7WQ479X2H;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Vendor\"",
+				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MeshNode/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -235,6 +367,12 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R7WQ479X2H;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Vendor\"",
+				);
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MeshNode/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

@@ -2,7 +2,75 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var mesh: MeshManager
+    @EnvironmentObject var identity: NodeIdentity
+    @EnvironmentObject var summaries: SummaryStore
+    @EnvironmentObject var llm: LLMService
+
+    var body: some View {
+        TabView {
+            ChatTab(title: "All", messages: mesh.messages)
+                .tabItem { Label("All", systemImage: "bubble.left.and.bubble.right") }
+            ChatTab(title: "Node", messages: nodeMessages)
+                .tabItem { Label("Node", systemImage: "person.crop.circle") }
+            RetrievalView()
+                .tabItem { Label("Retrieval", systemImage: "sparkles.rectangle.stack") }
+        }
+        .hideKeyboardOnTap()
+        .onChange(of: mesh.messages.count) { _, _ in kickOffPendingSummaries() }
+        .onChange(of: llm.state) { _, newValue in
+            if newValue == .ready { kickOffPendingSummaries() }
+        }
+    }
+
+    private func kickOffPendingSummaries() {
+        guard llm.isReady else { return }
+        for msg in mesh.messages where msg.senderId != mesh.selfId {
+            if identity.incomingEdgeType(fromSenderID: msg.senderId) == .summary {
+                summaries.requestSummary(messageID: msg.id, text: msg.payload)
+            }
+        }
+    }
+
+    private var nodeMessages: [MeshMessage] {
+        mesh.messages.compactMap { msg in
+            if msg.senderId == mesh.selfId { return msg }
+            guard let edgeType = identity.incomingEdgeType(fromSenderID: msg.senderId) else {
+                return nil
+            }
+            switch edgeType {
+            case .exact:
+                return msg
+            case .summary:
+                let summaryPayload: String
+                switch summaries.status(for: msg.id) {
+                case .done(let s):
+                    summaryPayload = "SUMMARY: " + s
+                case .pending:
+                    summaryPayload = "Summarising…"
+                case .failed:
+                    summaryPayload = "SUMMARY: " + msg.payload
+                case .none:
+                    summaryPayload = llm.isReady ? "Summarising…" : "(awaiting model) " + msg.payload
+                }
+                return MeshMessage(
+                    senderId: msg.senderId,
+                    msgId: msg.msgId,
+                    ttl: msg.ttl,
+                    timestamp: msg.timestamp,
+                    payload: summaryPayload
+                )
+            }
+        }
+    }
+}
+
+private struct ChatTab: View {
+    @EnvironmentObject var mesh: MeshManager
+    @EnvironmentObject var identity: NodeIdentity
+    let title: String
+    let messages: [MeshMessage]
     @State private var draft: String = ""
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
@@ -13,9 +81,26 @@ struct ContentView: View {
                 Divider()
                 composer
             }
-            .navigationTitle("MeshNode")
+            .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                }
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView().environmentObject(identity)
+            }
         }
+    }
+
+    private var navTitle: String {
+        let node = identity.currentNode.map { " · \($0.id)" } ?? ""
+        return "\(title)\(node)"
     }
 
     private var debugBar: some View {
@@ -44,15 +129,14 @@ struct ContentView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(mesh.messages) { msg in
-                        messageRow(msg)
-                            .id(msg.id)
+                    ForEach(messages) { msg in
+                        messageRow(msg).id(msg.id)
                     }
                 }
                 .padding()
             }
-            .onChange(of: mesh.messages.count) { _, _ in
-                if let last = mesh.messages.last {
+            .onChange(of: messages.count) { _, _ in
+                if let last = messages.last {
                     withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                 }
             }
@@ -78,17 +162,23 @@ struct ContentView: View {
     }
 
     private var composer: some View {
-        HStack {
-            TextField("Message", text: $draft, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(1...3)
-                .submitLabel(.send)
-                .onSubmit(sendDraft)
-            Button("Send", action: sendDraft)
-                .buttonStyle(.borderedProminent)
-                .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+        VStack(spacing: 0) {
+            STTStatusBar()
+            HStack(spacing: 8) {
+                TextField("Message", text: $draft, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...3)
+                    .submitLabel(.send)
+                    .onSubmit(sendDraft)
+                MicButton { text in
+                    mesh.send(text: text)
+                }
+                Button("Send", action: sendDraft)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding()
         }
-        .padding()
     }
 
     private func sendDraft() {
@@ -96,11 +186,13 @@ struct ContentView: View {
         draft = ""
     }
 
-    private func shortId(_ id: UUID) -> String {
-        String(id.uuidString.prefix(8))
+    private func shortId(_ id: String) -> String {
+        String(id.prefix(8))
     }
 }
 
 #Preview {
-    ContentView().environmentObject(MeshManager())
+    ContentView()
+        .environmentObject(MeshManager(nodeID: "PREVIEW"))
+        .environmentObject(NodeIdentity())
 }

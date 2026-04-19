@@ -10,17 +10,17 @@ final class MeshCache {
         self.capacity = capacity
     }
 
-    private static func key(_ sender: UUID, _ msgId: UInt32) -> String {
-        "\(sender.uuidString):\(msgId)"
+    private static func key(_ sender: String, _ msgId: UInt32) -> String {
+        "\(sender):\(msgId)"
     }
 
-    func contains(sender: UUID, msgId: UInt32) -> Bool {
+    func contains(sender: String, msgId: UInt32) -> Bool {
         lock.lock(); defer { lock.unlock() }
         return set.contains(Self.key(sender, msgId))
     }
 
     @discardableResult
-    func insert(sender: UUID, msgId: UInt32) -> Bool {
+    func insert(sender: String, msgId: UInt32) -> Bool {
         lock.lock(); defer { lock.unlock() }
         let k = Self.key(sender, msgId)
         if set.contains(k) { return false }
