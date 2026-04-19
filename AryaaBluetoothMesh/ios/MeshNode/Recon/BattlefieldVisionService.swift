@@ -43,9 +43,25 @@ enum ReconScanMode: String, CaseIterable, Sendable, Codable {
 
 @MainActor
 final class BattlefieldVisionService {
+    private struct CactusCompletionEnvelope: Decodable {
+        let success: Bool
+        let error: String?
+        let response: String?
+    }
+
+    private struct DetectionWrapper: Decodable {
+        let detections: [RawDetection]
+    }
+
     struct ScanResult {
         let detections: [RawDetection]
+        let analysisText: String?
         let previewImage: UIImage
+    }
+
+    private struct ParsedVisionOutput {
+        let detections: [RawDetection]
+        let analysisText: String?
     }
 
     private struct PreparedScanInput {
@@ -85,7 +101,7 @@ final class BattlefieldVisionService {
         try await llmService.waitUntilReady()
 
         let imageExists = FileManager.default.fileExists(atPath: prepared.imageURL.path)
-        log.info("Vision scan: image=\(prepared.imageURL.path, privacy: .public) exists=\(imageExists, privacy: .public) mode=\(mode.rawValue, privacy: .public)")
+        log.info("Vision scan using Gemma completion path: image=\(prepared.imageURL.path, privacy: .public) exists=\(imageExists, privacy: .public) mode=\(mode.rawValue, privacy: .public)")
 
         let rawResponse = try await llmService.complete(
             messages: try Self.buildMessages(intent: intent, imageURL: prepared.imageURL),
@@ -94,38 +110,43 @@ final class BattlefieldVisionService {
 
         log.info("Vision raw response (\(rawResponse.count) chars): \(rawResponse.prefix(500), privacy: .public)")
 
-        let detections = try Self.parseDetections(from: rawResponse)
-        log.info("Parsed \(detections.count) detections")
+        let output = try Self.parseOutput(from: rawResponse)
+        log.info("Parsed \(output.detections.count) detections")
         return ScanResult(
-            detections: detections,
+            detections: output.detections,
+            analysisText: output.analysisText,
             previewImage: prepared.previewImage
         )
     }
 
     static let systemPrompt: String = """
-    You are a military reconnaissance vision model embedded on a soldier's phone.
-    For every request:
-      1. Look at the provided image.
-      2. Identify ONLY the categories the user requests.
-      3. For each detection, emit a JSON object with fields:
-           box_2d:      [y_min, x_min, y_max, x_max]  (integers 0-1000, top-left origin)
-           label:       short class name (e.g. "dismounted combatant")
-           description: <= 20 words, uniform / weapon silhouette / posture / count
-           confidence:  0.0 - 1.0
-      4. Output ONLY a JSON array. No prose, no markdown fence. Begin with "[" and end with "]".
-    Never fabricate items that are not clearly visible. If nothing matches, return [].
+    Analyze the attached image for battlefield reconnaissance.
+    Identify only the categories requested below.
+    Return only a JSON array.
+    Each object must use this exact schema:
+    {
+      "box_2d": [y_min, x_min, y_max, x_max],
+      "label": "short class name",
+      "description": "20 words or fewer",
+      "confidence": 0.0
+    }
+    Use integer coordinates from 0 to 1000 with top-left origin.
+    Do not output markdown, prose, or explanations.
+    If nothing matches, return [].
     """
 
     private static func buildMessages(intent: String, imageURL: URL) throws -> [[String: Any]] {
         let imagePath = imageURL.path
+        let prompt = """
+        \(systemPrompt)
+
+        Requested categories:
+        \(intent)
+        """
         return [
             [
-                "role": "system",
-                "content": systemPrompt
-            ],
-            [
                 "role": "user",
-                "content": intent,
+                "content": prompt,
                 "images": [imagePath]
             ]
         ]
@@ -135,11 +156,14 @@ final class BattlefieldVisionService {
         [
             "max_tokens": mode.maxResponseTokens,
             "temperature": 0.0,
-            "image_token_budget": mode.tokenBudget
+            "top_p": 0.95,
+            "top_k": 40,
+            "image_token_budget": mode.tokenBudget,
+            "stop_sequences": ["<|im_end|>", "<end_of_turn>"]
         ]
     }
 
-    private static func parseDetections(from response: String) throws -> [RawDetection] {
+    private static func parseOutput(from response: String) throws -> ParsedVisionOutput {
         let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             log.warning("Vision model returned empty response")
@@ -148,29 +172,90 @@ final class BattlefieldVisionService {
             )
         }
 
-        let jsonString = stripMarkdownFence(from: trimmed)
-        guard let start = jsonString.firstIndex(of: "["),
-              let end = jsonString.lastIndex(of: "]") else {
-            // Model returned text but no JSON array — likely chatbot fallback.
-            log.warning("Vision response has no JSON array: \(trimmed.prefix(200), privacy: .public)")
+        let responseBody = try extractPayload(from: trimmed)
+        guard let responseBody,
+              !responseBody.isEmpty else {
+            log.warning("Vision response had no response body")
             throw BattlefieldVisionServiceError.modelReturnedNoVisionOutput(
-                "Model did not return detections. Raw: \(String(trimmed.prefix(120)))"
+                "Model did not return detections."
             )
         }
-        let slice = String(jsonString[start...end])
 
-        guard let data = slice.data(using: .utf8) else {
+        if let detections = decodeDetectionsPayload(from: responseBody) {
+            return ParsedVisionOutput(
+                detections: detections.filter { $0.box_2d.count == 4 },
+                analysisText: nil
+            )
+        }
+
+        let analysisText = stripMarkdownFence(from: responseBody).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !analysisText.isEmpty else {
+            log.warning("Vision response body was not structured detections: \(responseBody.prefix(200), privacy: .public)")
+            throw BattlefieldVisionServiceError.modelReturnedNoVisionOutput(
+                "Model answered the image request, but not in detection format."
+            )
+        }
+
+        log.info("Vision returned prose analysis instead of detections")
+        return ParsedVisionOutput(
+            detections: [],
+            analysisText: analysisText
+        )
+    }
+
+    private static func extractPayload(from raw: String) throws -> String? {
+        guard let data = raw.data(using: .utf8) else {
             throw BattlefieldVisionServiceError.invalidModelResponse("non-utf8 response body")
         }
 
-        do {
-            let detections = try JSONDecoder().decode([RawDetection].self, from: data)
-            return detections.filter { $0.box_2d.count == 4 }
-        } catch {
-            throw BattlefieldVisionServiceError.invalidModelResponse(
-                "decode failed: \(error.localizedDescription)"
-            )
+        let decoder = JSONDecoder()
+        if let envelope = try? decoder.decode(CactusCompletionEnvelope.self, from: data) {
+            if !envelope.success {
+                throw BattlefieldVisionServiceError.invalidModelResponse(
+                    envelope.error ?? "model reported failure"
+                )
+            }
+            return envelope.response
         }
+
+        return raw
+    }
+
+    private static func decodeDetectionsPayload(from responseBody: String) -> [RawDetection]? {
+        let normalized = stripMarkdownFence(from: responseBody.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard !normalized.isEmpty else { return nil }
+
+        if let detections = decodeDetectionsArray(from: normalized) {
+            return detections
+        }
+
+        if let extracted = extractJSONArray(from: normalized),
+           let detections = decodeDetectionsArray(from: extracted) {
+            return detections
+        }
+
+        if let wrapper = decodeDetectionWrapper(from: normalized) {
+            return wrapper
+        }
+
+        return nil
+    }
+
+    private static func decodeDetectionsArray(from text: String) -> [RawDetection]? {
+        guard let data = text.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode([RawDetection].self, from: data)
+    }
+
+    private static func decodeDetectionWrapper(from text: String) -> [RawDetection]? {
+        guard let data = text.data(using: .utf8) else { return nil }
+        return (try? JSONDecoder().decode(DetectionWrapper.self, from: data))?.detections
+    }
+
+    private static func extractJSONArray(from text: String) -> String? {
+        guard let start = text.firstIndex(of: "["),
+              let end = text.lastIndex(of: "]"),
+              start <= end else { return nil }
+        return String(text[start...end])
     }
 
     private static func stripMarkdownFence(from text: String) -> String {

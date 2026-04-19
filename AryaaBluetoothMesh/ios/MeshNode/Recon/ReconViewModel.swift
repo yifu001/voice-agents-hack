@@ -22,6 +22,7 @@ final class ReconViewModel: ObservableObject {
     @Published private(set) var status: ScanStatus = .idle
     @Published private(set) var sightings: [TargetSighting] = []
     @Published private(set) var lastCapturedImage: UIImage?
+    @Published private(set) var lastAnalysisText: String?
     @Published private(set) var scanUnavailableMessage: String?
     @Published private(set) var scanWarningMessage: String?
 
@@ -126,6 +127,7 @@ final class ReconViewModel: ObservableObject {
     func clearSightings() {
         sightings = []
         lastCapturedImage = nil
+        lastAnalysisText = nil
         status = .idle
     }
 
@@ -142,6 +144,7 @@ final class ReconViewModel: ObservableObject {
         }
 
         status = .scanning
+        lastAnalysisText = nil
 
         let shouldResumeRange = rangeProvider.mode == .lidar
         let shouldReloadSTT = sttService?.isReady == true
@@ -189,6 +192,7 @@ final class ReconViewModel: ObservableObject {
             }
 
             lastCapturedImage = scanResult.previewImage
+            lastAnalysisText = scanResult.analysisText
             sightings = fused
             await restoreRealtimeServices(shouldReloadSTT: shouldReloadSTT, shouldResumeRange: shouldResumeRange)
             status = .idle

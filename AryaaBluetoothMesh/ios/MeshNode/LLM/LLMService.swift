@@ -73,7 +73,8 @@ final class LLMService: ObservableObject {
 
     func complete(
         messages: [[String: Any]],
-        options: [String: Any] = [:]
+        options: [String: Any] = [:],
+        tools: [Any]? = nil
     ) async throws -> String {
         guard isReady, let model else {
             throw CompletionError.modelNotReady
@@ -91,9 +92,19 @@ final class LLMService: ObservableObject {
             }
             optionsJSON = encoded
         }
+        let toolsJSON: String?
+        if let tools {
+            guard let encoded = Self.encodeJSON(tools) else {
+                throw CompletionError.invalidRequest
+            }
+            toolsJSON = encoded
+        } else {
+            toolsJSON = nil
+        }
 
         let hasImages = messagesJSON.contains("\"images\"")
-        log.info("LLM complete (hasImages=\(hasImages, privacy: .public), options=\(optionsJSON ?? "nil", privacy: .public))")
+        let hasTools = toolsJSON != nil
+        log.info("LLM complete (hasImages=\(hasImages, privacy: .public), hasTools=\(hasTools, privacy: .public), options=\(optionsJSON ?? "nil", privacy: .public))")
         log.info("LLM request body: \(messagesJSON.prefix(400), privacy: .public)")
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -104,7 +115,7 @@ final class LLMService: ObservableObject {
                         model,
                         messagesJSON,
                         optionsJSON,
-                        nil as String?,
+                        toolsJSON,
                         nil as ((String, UInt32) -> Void)?
                     )
                     log.info("LLM complete result (\(result.count) chars): \(result.prefix(300), privacy: .public)")
@@ -129,13 +140,16 @@ final class LLMService: ObservableObject {
                 }
                 return
             }
+            log.info("Gemma loading from \(modelPath, privacy: .public)")
             do {
                 let handle = try cactusInit(modelPath, nil, false)
                 Task { @MainActor in
                     self.model = handle
                     self.state = .ready
+                    log.info("Gemma ready")
                 }
             } catch {
+                log.error("Gemma init failed: \(error.localizedDescription, privacy: .public)")
                 Task { @MainActor in
                     self.state = .error("cactusInit failed: \(error.localizedDescription)")
                 }

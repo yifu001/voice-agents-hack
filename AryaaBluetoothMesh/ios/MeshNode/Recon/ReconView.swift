@@ -7,7 +7,6 @@ struct ReconView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                topBar
                 viewfinder
                 controls
                 resultsList
@@ -17,28 +16,6 @@ struct ReconView: View {
         }
         .task { await viewModel.prepareIfNeeded() }
         .onDisappear { viewModel.teardown() }
-    }
-
-    private var topBar: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "viewfinder.circle.fill")
-                .foregroundStyle(.tint)
-                .font(.title2)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Image Analysis")
-                    .font(.headline)
-                Text(statusLine)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if case .scanning = viewModel.status {
-                ProgressView()
-            }
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(Color(.secondarySystemBackground))
     }
 
     private var viewfinder: some View {
@@ -113,27 +90,14 @@ struct ReconView: View {
 
     private var controls: some View {
         VStack(spacing: 10) {
-            Picker("Mode", selection: $viewModel.mode) {
-                ForEach(ReconScanMode.allCases, id: \.self) { option in
-                    Text(option.title).tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(viewModel.intentPresets) { preset in
-                        Button(preset.title) {
-                            viewModel.selectIntent(id: preset.id)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(preset.id == viewModel.selectedIntentID ? .accentColor : .gray)
-                    }
-                }
-                .padding(.horizontal, 2)
+            if let scanWarningMessage = viewModel.scanWarningMessage {
+                Text(scanWarningMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            TextField("Custom intent (overrides preset)", text: $viewModel.customIntent, axis: .vertical)
+            TextField("Custom scan prompt (optional)", text: $viewModel.customIntent, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...3)
 
@@ -154,17 +118,35 @@ struct ReconView: View {
                     viewModel.clearSightings()
                 }
                 .buttonStyle(.bordered)
-                .disabled(viewModel.sightings.isEmpty && viewModel.lastCapturedImage == nil)
+                .disabled(
+                    viewModel.sightings.isEmpty &&
+                    viewModel.lastCapturedImage == nil &&
+                    (viewModel.lastAnalysisText?.isEmpty != false)
+                )
             }
         }
         .padding(.horizontal)
-        .padding(.top, 10)
+        .padding(.top, 12)
     }
 
     private var resultsList: some View {
         Group {
             if viewModel.sightings.isEmpty {
-                if case .error(let message) = viewModel.status {
+                if let analysis = viewModel.lastAnalysisText, !analysis.isEmpty {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("Model Analysis", systemImage: "text.viewfinder")
+                                .font(.headline)
+                            Text(analysis)
+                                .font(.footnote)
+                                .foregroundStyle(.primary)
+                                .textSelection(.enabled)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if case .error(let message) = viewModel.status {
                     VStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
@@ -252,25 +234,6 @@ struct ReconView: View {
         }
     }
 
-    private var statusLine: String {
-        if let scanUnavailableMessage = viewModel.scanUnavailableMessage {
-            return scanUnavailableMessage
-        }
-        if let scanWarningMessage = viewModel.scanWarningMessage {
-            return scanWarningMessage
-        }
-        switch viewModel.status {
-        case .idle:
-            if viewModel.sightings.isEmpty {
-                return "Ready. Model: Gemma 4 E2B (on-device)."
-            }
-            return "\(viewModel.sightings.count) target\(viewModel.sightings.count == 1 ? "" : "s") detected."
-        case .scanning:
-            return "Running Gemma 4 on-device…"
-        case .error(let message):
-            return "Error: \(message)"
-        }
-    }
 }
 
 private struct SightingRow: View {

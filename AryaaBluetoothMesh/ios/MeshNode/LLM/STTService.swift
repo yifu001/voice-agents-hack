@@ -49,28 +49,7 @@ final class STTService: ObservableObject {
 
         loadQueue.async { [weak self] in
             guard let self else { return }
-            let modelPath: String
-            do {
-                modelPath = try Self.resolveModelPath()
-            } catch {
-                let msg = "Parakeet path: \(error.localizedDescription)"
-                log.error("\(msg, privacy: .public)")
-                Task { @MainActor in self.state = .error(msg) }
-                return
-            }
-            log.info("Parakeet loading from \(modelPath, privacy: .public)")
-            do {
-                let handle = try cactusInit(modelPath, nil, false)
-                Task { @MainActor in
-                    self.model = handle
-                    self.state = .ready
-                    log.info("Parakeet ready")
-                }
-            } catch {
-                let msg = "parakeet init failed: \(error.localizedDescription)"
-                log.error("\(msg, privacy: .public)")
-                Task { @MainActor in self.state = .error(msg) }
-            }
+            self.loadModel(forceRefresh: false)
         }
     }
 
@@ -159,7 +138,40 @@ final class STTService: ObservableObject {
         }
     }
 
-    private static func resolveModelPath() throws -> String {
+    private func loadModel(forceRefresh: Bool) {
+        let modelPath: String
+        do {
+            modelPath = try Self.resolveModelPath(forceRefresh: forceRefresh)
+        } catch {
+            let msg = "Parakeet path: \(error.localizedDescription)"
+            log.error("\(msg, privacy: .public)")
+            Task { @MainActor in self.state = .error(msg) }
+            return
+        }
+
+        log.info("Parakeet loading from \(modelPath, privacy: .public)")
+        do {
+            let handle = try cactusInit(modelPath, nil, false)
+            Task { @MainActor in
+                self.model = handle
+                self.state = .ready
+                log.info("Parakeet ready")
+            }
+        } catch {
+            let description = error.localizedDescription
+            if !forceRefresh, description.contains("Cannot map file") {
+                log.warning("Parakeet mmap failed, recopying model bundle and retrying once")
+                loadModel(forceRefresh: true)
+                return
+            }
+
+            let msg = "parakeet init failed: \(description)"
+            log.error("\(msg, privacy: .public)")
+            Task { @MainActor in self.state = .error(msg) }
+        }
+    }
+
+    private static func resolveModelPath(forceRefresh: Bool = false) throws -> String {
         let fm = FileManager.default
         let modelName = "parakeet-ctc-0.6b"
 
@@ -175,7 +187,9 @@ final class STTService: ObservableObject {
                                      appropriateFor: nil, create: true)
         let writable = appSupport.appendingPathComponent(modelName)
 
-        if fm.fileExists(atPath: writable.path) {
+        if forceRefresh, fm.fileExists(atPath: writable.path) {
+            try? fm.removeItem(at: writable)
+        } else if fm.fileExists(atPath: writable.path) {
             // Verify the copy is intact — check a known weight file exists.
             let probe = writable.appendingPathComponent("layer_0_conv_pointwise1.weights")
             if !fm.fileExists(atPath: probe.path) {
