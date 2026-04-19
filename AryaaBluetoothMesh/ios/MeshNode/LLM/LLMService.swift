@@ -189,32 +189,31 @@ final class LLMService: ObservableObject {
         }
     }
 
-    /// Max input characters for summarization. The Gemma 4 2B KV cache has
-    /// a sliding window of ~512-1024 tokens. Our prompt overhead is ~120
-    /// tokens, output budget is 60, leaving ~330-830 for the message.
-    /// 1200 chars ≈ 300 tokens — fits comfortably in the worst case.
-    private static let maxSummariseInputChars = 1200
+    /// Hard cap on input message length. The full soul.md (~1000 tokens) plus
+    /// task framing (~50 tokens) and output budget (60 tokens) total ~1110.
+    /// Capping input at 600 chars (~150 tokens) keeps the grand total under
+    /// ~1260 tokens, well within the KV cache max_seq_len of 2048.
+    private static let maxSummariseInputChars = 600
 
     func summarise(_ text: String, role: OutputPostProcessor.EarpieceRole = .summary) async -> String {
-        // Truncate long messages so prompt + input always fits the sliding window.
-        let capped: String
-        if text.count > Self.maxSummariseInputChars {
-            capped = String(text.prefix(Self.maxSummariseInputChars))
-        } else {
-            capped = text
-        }
-        let cap = role.wordCap
-        // One-shot example teaches the model the task more effectively than
-        // lengthy instructions — critical for a 2B model with limited context.
+        // Truncate long messages to prevent context overflow while keeping
+        // the full soul.md (its identity anchors prevent chatbot fallbacks).
+        let capped = text.count > Self.maxSummariseInputChars
+            ? String(text.prefix(Self.maxSummariseInputChars))
+            : text
+        // Merge soul into the user turn so it works even if the model's chat
+        // template ignores the system role (Gemma has no native system turn).
         let userPrompt = """
-        Rewrite the operator message as a terse third-person relay. \
-        Present tense. Max \(cap) words. No emoji. No markdown.
+        \(Self.soulPrompt)
 
-        Example:
-        Message: yeah we're in the foyer, saw one guy, dropped him, room looks clear I think
-        Relay: Foyer clear, one EKIA.
+        --- TASK ---
+        Compact the following operator message into a terse third-person relay. \
+        Max \(role.wordCap) words. No preamble, no quotes, no commentary. \
+        Output only the compacted relay.
 
-        Message: \(capped)
+        Message:
+        \(capped)
+
         Relay:
         """
         let messages: [[String: String]] = [
