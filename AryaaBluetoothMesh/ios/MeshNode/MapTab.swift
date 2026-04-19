@@ -40,16 +40,18 @@ struct MapTab: View {
 
     private var peerAnnotations: [PeerAnnotation] {
         mesh.peerLocations.compactMap { (peerId, location) in
-            let label = shortId(peerId)
             let isSelf = peerId == mesh.selfId
             let staleness = Date().timeIntervalSince(location.timestamp)
+            // Hide non-self peers that haven't sent a heartbeat in 30s —
+            // they likely switched node identity or went offline.
+            if !isSelf && staleness > 30 { return nil }
             return PeerAnnotation(
                 id: peerId,
-                label: isSelf ? "You" : label,
+                label: isSelf ? "You" : peerId,
                 coordinate: location.coordinate,
                 accuracy: location.accuracy,
                 isSelf: isSelf,
-                isStale: staleness > 30
+                isStale: staleness > 15
             )
         }
     }

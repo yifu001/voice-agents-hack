@@ -99,6 +99,7 @@ final class MeshManager: NSObject, ObservableObject {
     }
 
     private func sendLocationHeartbeat() {
+        pruneStaleLocations()
         guard locationManager.hasLocation else { return }
         guard connectedPeerCount > 0 else { return }
         msgCounter += 1
@@ -117,6 +118,17 @@ final class MeshManager: NSObject, ObservableObject {
         sentCount += 1
         guard let data = msg.encode() else { return }
         broadcast(data, excluding: nil)
+    }
+
+    /// Remove peer locations that haven't been refreshed in 30 seconds.
+    /// Prevents stale entries from lingering when a device changes node identity.
+    private func pruneStaleLocations() {
+        let cutoff = Date().addingTimeInterval(-30)
+        for (id, loc) in peerLocations where id != selfId {
+            if loc.timestamp < cutoff {
+                peerLocations.removeValue(forKey: id)
+            }
+        }
     }
 
     // MARK: - Incoming
