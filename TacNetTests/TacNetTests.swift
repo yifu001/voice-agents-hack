@@ -2481,9 +2481,9 @@ final class TacNetTests: XCTestCase {
         XCTAssertEqual(viewModel.totalMessageCount, 1)
     }
 
-    func testTabNavigationDefinesAllFourTabsInExpectedOrder() {
-        XCTAssertEqual(TacNetTab.allCases.count, 4)
-        XCTAssertEqual(TacNetTab.allCases.map(\.title), ["Main", "Tree View", "Data Flow", "Settings"])
+    func testTabNavigationDefinesAllFiveTabsInExpectedOrder() {
+        XCTAssertEqual(TacNetTab.allCases.count, 5)
+        XCTAssertEqual(TacNetTab.allCases.map(\.title), ["Main", "Recon", "Tree View", "Data Flow", "Settings"])
     }
 
     @MainActor
