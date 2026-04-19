@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TacNet Command</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <!-- ── Cinematic Landing Overlay ── -->
+    <div class="landing" id="landing">
+        <video class="landing-video" id="landing-video" autoplay muted playsinline>
+            <source src="tecnet.mp4" type="video/mp4">
+        </video>
+        <div class="landing-overlay">
+            <div class="landing-content">
+                <div class="landing-badge">MESH INTELLIGENCE NETWORK</div>
+                <h1 class="landing-title">TacNet</h1>
+                <p class="landing-sub">On-device AI mesh for decentralized tactical communication</p>
+                <button class="landing-enter" id="landing-enter" onclick="enterDashboard()">
+                    <span>Enter Command</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="dashboard">
+
+        <!-- ── Top Bar ── -->
+        <header class="topbar">
+            <div class="topbar-left">
+                <span class="topbar-logo">TacNet</span>
+                <div class="topbar-separator"></div>
+                <span class="topbar-label">Command Dashboard</span>
+            </div>
+            <div class="topbar-right">
+                <div class="status-indicator">
+                    <div class="status-dot scanning" id="conn-dot"></div>
+                    <span id="conn-label">Connecting...</span>
+                </div>
+                <button class="btn-demo" id="btn-demo" onclick="toggleDemo()">Demo Mode</button>
+            </div>
+        </header>
+
+        <!-- ── Left Panel: Tree + Nodes ── -->
+        <aside class="panel-left">
+            <div class="panel-section">
+                <div class="section-header">
+                    <span>Hierarchy</span>
+                </div>
+                <div class="tree-container" id="tree-view">
+                    <div class="empty-state">
+                        <div class="scan-ring"></div>
+                        <div class="empty-state-title">No network</div>
+                        <div class="empty-state-desc">Scanning for TacNet devices or enable demo mode</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <div class="section-header">
+                    <span>Nodes</span>
+                    <span class="count" id="node-count">0</span>
+                </div>
+                <div class="node-stats" id="node-stats">
+                    <div style="padding:8px;color:var(--text-dim);font-family:var(--mono);font-size:11px;">No nodes connected</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ── Center Panel: Live Feed ── -->
+        <main class="panel-center">
+            <div class="feed-header">
+                <div class="section-header" style="margin-bottom:0">
+                    <span>Live Feed</span>
+                    <span class="count" id="feed-count">0 messages</span>
+                </div>
+            </div>
+            <div class="feed-scroll" id="feed">
+                <div class="empty-state">
+                    <div class="empty-state-title">Awaiting transmissions</div>
+                    <div class="empty-state-desc">Messages will appear here as they flow through the mesh</div>
+                </div>
+            </div>
+        </main>
+
+        <!-- ── Right Panel: SITREP + Stats ── -->
+        <aside class="panel-right">
+            <div class="panel-section sitrep-card">
+                <div class="section-header">
+                    <span>Latest SITREP</span>
+                </div>
+                <div class="sitrep-content empty" id="sitrep-content">
+                    Awaiting first compaction...
+                </div>
+                <div class="sitrep-time" id="sitrep-time"></div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-cell">
+                    <span class="stat-value cyan" id="stat-nodes">0</span>
+                    <span class="stat-label">Nodes</span>
+                </div>
+                <div class="stat-cell">
+                    <span class="stat-value" id="stat-messages">0</span>
+                    <span class="stat-label">Messages</span>
+                </div>
+                <div class="stat-cell">
+                    <span class="stat-value" id="stat-broadcasts">0</span>
+                    <span class="stat-label">Broadcasts</span>
+                </div>
+                <div class="stat-cell">
+                    <span class="stat-value amber" id="stat-compactions">0</span>
+                    <span class="stat-label">Compactions</span>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <div class="section-header">
+                    <span>Network</span>
+                </div>
+                <div class="network-info" id="network-info">
+                    <div class="info-row">
+                        <span class="info-label">Network</span>
+                        <span class="info-value">&mdash;</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
