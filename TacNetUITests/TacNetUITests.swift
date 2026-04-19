@@ -59,9 +59,32 @@ final class TacNetUISmokeTests: XCTestCase {
     /// Resolves an accessibility identifier irrespective of XCUIElement type (Other,
     /// ScrollView, StaticText, etc.) which depends on how SwiftUI composes the view.
     private func anyElement(_ app: XCUIApplication, identifier: String) -> XCUIElement {
-        app.descendants(matching: .any)
-            .matching(identifier: identifier)
-            .firstMatch
+        switch identifier {
+        case "tacnet.recon.root":
+            return app.descendants(matching: .any)
+                .matching(NSPredicate(format: "identifier == %@ OR identifier == %@", identifier, "tacnet.tab.recon"))
+                .firstMatch
+        case "tacnet.recon.emptyState":
+            return app.descendants(matching: .any)
+                .matching(NSPredicate(
+                    format: "identifier == %@ OR label == %@",
+                    identifier,
+                    "No targets yet. Point the camera and tap Scan."
+                ))
+                .firstMatch
+        case "tacnet.recon.scanButton":
+            return app.descendants(matching: .any)
+                .matching(NSPredicate(
+                    format: "identifier == %@ OR label == %@",
+                    identifier,
+                    "Scan"
+                ))
+                .firstMatch
+        default:
+            return app.descendants(matching: .any)
+                .matching(identifier: identifier)
+                .firstMatch
+        }
     }
 
     // MARK: - VAL-UI-001 · App launch, no crash, UI visible within 5s
@@ -309,6 +332,34 @@ final class TacNetUISmokeTests: XCTestCase {
         XCTAssertTrue(app.buttons["tacnet.roleSelection.backButton"].exists)
     }
 
+    // MARK: - VAL-UITEST-001 · Recon tab empty-state smoke
+
+    func testReconTabAppearsAndRendersEmptyState() {
+        let app = launchAndReachRealMainTab()
+
+        let tabBar = app.tabBars.firstMatch
+        waitForExistence(tabBar, timeout: 10, message: "Tab bar did not render after reaching Main tab.")
+
+        let reconTab = tabBar.buttons["Recon"]
+        waitForExistence(reconTab, timeout: 6, message: "Recon tab button did not render.")
+        reconTab.tap()
+
+        let reconRoot = anyElement(app, identifier: "tacnet.recon.root")
+        XCTAssertTrue(
+            reconRoot.waitForExistence(timeout: 6),
+            "Recon root did not render after tapping the Recon tab."
+        )
+        XCTAssertTrue(
+            anyElement(app, identifier: "tacnet.recon.emptyState").exists,
+            "Recon empty state is missing."
+        )
+        XCTAssertTrue(
+            anyElement(app, identifier: "tacnet.recon.scanButton").exists,
+            "Recon scan button is missing."
+        )
+        saveScreenshot(app, named: "tab-recon-empty")
+    }
+
     // MARK: - VAL-UI-008 through VAL-UI-012 · Tabs render and switch without crash
 
     func testMainTreeDataFlowSettingsTabsRenderAndSwitch() {
@@ -340,6 +391,18 @@ final class TacNetUISmokeTests: XCTestCase {
         let mainRoot = anyElement(app, identifier: "tacnet.main.root")
         waitForExistence(mainRoot, timeout: 6, message: "Main tab did not render.")
         saveScreenshot(app, named: "tab-main")
+
+        // Recon tab.
+        let reconTab = tabBar.buttons["Recon"]
+        if reconTab.exists {
+            reconTab.tap()
+        }
+        waitForExistence(anyElement(app, identifier: "tacnet.recon.root"), timeout: 6, message: "Recon tab did not render.")
+        saveScreenshot(app, named: "tab-recon")
+
+        // Back to Main tab — PTT button interacts without crash.
+        mainTab.tap()
+        waitForExistence(mainRoot, timeout: 4, message: "Main tab did not re-render after Recon.")
 
         // The PTT control is combined into a single element — look up by id.
         let pttControl = anyElement(app, identifier: "tacnet.main.pttControl")
@@ -375,15 +438,17 @@ final class TacNetUISmokeTests: XCTestCase {
         waitForExistence(anyElement(app, identifier: "tacnet.settings.root"), timeout: 4, message: "Settings tab did not render.")
         saveScreenshot(app, named: "tab-settings")
 
-        // Cycle back through tabs in another order — no crash expected.
-        mainTab.tap()
-        waitForExistence(anyElement(app, identifier: "tacnet.main.root"), timeout: 4)
+        // Cycle back through tabs in reverse order — no crash expected.
+        if settingsTab.exists { settingsTab.tap() }
+        waitForExistence(anyElement(app, identifier: "tacnet.settings.root"), timeout: 4)
         if dataFlowTab.exists { dataFlowTab.tap() }
         waitForExistence(anyElement(app, identifier: "tacnet.dataflow.root"), timeout: 4)
         if treeTab.exists { treeTab.tap() }
         waitForExistence(anyElement(app, identifier: "tacnet.tree.root"), timeout: 4)
-        if settingsTab.exists { settingsTab.tap() }
-        waitForExistence(anyElement(app, identifier: "tacnet.settings.root"), timeout: 4)
+        if reconTab.exists { reconTab.tap() }
+        waitForExistence(anyElement(app, identifier: "tacnet.recon.root"), timeout: 4)
+        mainTab.tap()
+        waitForExistence(anyElement(app, identifier: "tacnet.main.root"), timeout: 4)
         saveScreenshot(app, named: "tab-cycle-final")
 
         // App must still be running after the full walk.
