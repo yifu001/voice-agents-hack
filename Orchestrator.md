@@ -1,1896 +1,274 @@
-# TacNet: Tactical Communication Network with On-Device AI Summarization
+# Orchestrator: Recon (Battlefield Scan) Tab — Mission Build Spec
 
-  
-
-> A decentralized, offline-first voice communication system that mimics military radio hierarchy using a Bluetooth mesh of phones, each running Gemma 4 E4B (Edge 4B) via Cactus AI for real-time message compaction and upward propagation.
-
-  
+> Single-mission spec for building out the new **Recon** tab in TacNet. This file is the **source of truth** the mission-mode agent will consume. Everything below is scoped to a single mission with deterministic acceptance criteria.
 
 ---
 
-  
+## 0. Mission Statement (one sentence)
 
-## 1. The Problem
-
-  
-
-In military operations (and disaster relief, construction sites, large events), radio communication hits a fundamental scaling wall:
-
-  
-
-- **A commander with 50 subordinates cannot listen to 50 simultaneous voice channels**
-
-- Traditional radio requires humans to manually relay and summarize upward
-
-- Centralized systems (cell towers, internet) are single points of failure
-
-- Existing solutions require expensive proprietary hardware
-
-  
-
-**TacNet solves this**: every phone in the network runs a local AI that automatically compresses child messages into summaries and propagates them up a command tree — so the top-level operator gets a real-time, AI-compacted situational overview without hearing a single raw transmission.
-
-  
+Ship a fully on-device battlefield-scan tab in the TacNet iPhone app that uses the already-bundled Cactus xcframework + Gemma 4 E4B model to detect targets in a still photo and return, for each target, a **description**, a **true-north bearing**, and a **metric distance** — with zero network calls after install.
 
 ---
 
-  
+## 1. Non-Negotiable Constraints
 
-## 2. System Architecture Overview
-
-  
-
-```
-
-┌─────────────┐
-
-│ ROOT NODE │ Commander / HQ
-
-│ (Phone 0) │ Sees: compacted summary of ENTIRE network
-
-└──────┬──────┘
-
-│
-
-Compacted summary from L1 nodes
-
-│
-
-┌────────────────┼────────────────┐
-
-│ │ │
-
-┌──────┴──────┐ ┌─────┴──────┐ ┌──────┴──────┐
-
-│ L1 NODE │ │ L1 NODE │ │ L1 NODE │
-
-│ (Phone 1) │ │ (Phone 2) │ │ (Phone 3) │ Platoon Leaders
-
-└──────┬──────┘ └────────────┘ └──────┬──────┘
-
-│ │
-
-Compacted summary from L2 Compacted summary from L2
-
-│ │
-
-┌───────┼───────┐ ┌────────┼────────┐
-
-│ │ │ │ │ │
-
-┌──┴──┐ ┌─┴──┐ ┌──┴──┐ ┌───┴──┐ ┌──┴───┐ ┌──┴──┐
-
-│ L2 │ │ L2 │ │ L2 │ │ L2 │ │ L2 │ │ L2 │
-
-│ P4 │ │ P5 │ │ P6 │ │ P7 │ │ P8 │ │ P9 │ Squad Members
-
-└─────┘ └─────┘ └─────┘ └──────┘ └──────┘ └─────┘
-
-  
-
-◄──── Siblings ────► ◄──── Siblings ────►
-
-(hear each other (hear each other
-
-via broadcast) via broadcast)
-
-```
-
-  
+1. **100 % on-device.** No network, no cloud, no remote model. Re-use `CactusModelInitializationService.shared` — do **not** load a second model handle.
+2. **Swift-only.** No Python, no Node, no new native C/C++.
+3. **No new third-party SPM dependencies.** Only Apple frameworks + the vendored Cactus xcframework already in `Frameworks/cactus-ios.xcframework`.
+4. **Must build clean** for:
+   - `-destination 'generic/platform=iOS'` (arm64 device)
+   - `-destination 'platform=iOS Simulator,name=iPhone 17 Pro'` (arm64 simulator)
+   The x86_64 simulator slice is permitted to stay red because Cactus doesn't ship x86_64 — this is pre-existing and out of scope.
+5. **All 14 pre-existing UI smoke tests must still pass** on iPhone 17 Pro simulator.
+6. **Branch**: work happens on `image-detection` branch. Do **not** merge to `main`.
+7. **No emojis** anywhere in source, tests, docs, or commits.
 
 ---
 
-  
+## 2. What Already Exists in the Branch
 
-## 3. Two Communication Layers
+The previous implementation pass already landed in `image-detection` (unstaged / untracked). Re-use — do **not** re-author — these files:
 
-  
+| Path                                                      | Purpose                                                               |
+| --------------------------------------------------------- | --------------------------------------------------------------------- |
+| `TacNet/Models/TargetSighting.swift`                      | `TargetSighting`, `NormalizedBox` (Gemma 0–1000 grid), `RawDetection` |
+| `TacNet/Services/TargetFusion.swift`                      | Pure math: bearing, pinhole distance, class → real-world height       |
+| `TacNet/Services/BattlefieldVisionService.swift`          | `actor` wrapping `cactusComplete`; `ReconScanMode`; JSON parsing       |
+| `TacNet/Services/HeadingProvider.swift`                   | `CLLocationManager` true-north heading                                |
+| `TacNet/Services/RangeProvider.swift`                     | `ARSession.sceneDepth` LiDAR sampling                                 |
+| `TacNet/Services/CameraCaptureService.swift`              | `AVCaptureSession .photo` + FoV metadata                              |
+| `TacNet/Views/CameraPreviewRepresentable.swift`           | `AVCaptureVideoPreviewLayer` in SwiftUI                               |
+| `TacNet/ViewModels/ReconViewModel.swift`                  | `@MainActor` VM: scan pipeline, intent presets, mode, status          |
+| `TacNet/Views/ReconView.swift`                            | Tab UI: viewfinder, bbox overlay, presets, sighting rows              |
 
-The system operates on **two distinct layers** simultaneously:
+And these files were **modified** to wire the tab in:
 
-  
+- `TacNet/Views/ContentView.swift` — added `.recon` case + `TacNetTabShellView` + `AppNetworkCoordinator.reconViewModel`
+- `TacNet/Resources/Info.plist` — added `NSCameraUsageDescription`, `NSMotionUsageDescription`, updated location string
+- `TacNet/Utilities/FrameworkImportsProbe.swift` — added `import ARKit` + `_ = ARSession.self`
+- `TacNet.xcodeproj/project.pbxproj` — added ARKit + 10 Swift files to groups, sources build phase, frameworks build phase
 
-### Layer 1: Broadcast (Radio Replacement)
-
-  
-
-```
-
-┌─────────────────────────────────────────────────────────────┐
-
-│ BROADCAST LAYER │
-
-│ │
-
-│ When Phone 4 pushes talk: │
-
-│ │
-
-│ 1. Phone 4 records audio and plays it LOCALLY │
-
-│ 2. STT converts to transcript on-device (Cactus/Gemma) │
-
-│ 3. Transcript crosses the BLE mesh to ALL phones │
-
-│ │
-
-│ Audio is NEVER transmitted over BLE — only transcript text │
-
-│ crosses the mesh. No BLE audio profile is used. │
-
-│ │
-
-│ These nodes DISPLAY the transcript in their live feed: │
-
-│ - Phone 5 (sibling) ✅ receives transcript via mesh │
-
-│ - Phone 6 (sibling) ✅ receives transcript via mesh │
-
-│ - Phone 1 (parent) ✅ receives transcript via mesh │
-
-│ - Phone 0 (grandparent) ❌ filtered out (not sibling/parent) │
-
-│ - Phone 7 (cousin) ❌ filtered out (not sibling/parent) │
-
-│ │
-
-│ Scope: siblings + immediate parent only │
-
-│ Purpose: replaces traditional radio within a squad │
-
-└─────────────────────────────────────────────────────────────┘
-
-```
-
-  
-
-This mimics how a radio channel works — everyone on your channel (your siblings + your squad leader) sees your message. The key architectural difference: **audio is NEVER transmitted over BLE**; only the transcript text crosses the mesh. Receiving devices display the transcript in their live feed. No BLE audio profile is used.
-
-  
-
-### Layer 2: Compaction (AI Summarization Upward)
-
-  
-
-```
-
-┌─────────────────────────────────────────────────────────────┐
-
-│ COMPACTION LAYER │
-
-│ │
-
-│ Phone 1 (parent of P4, P5, P6) runs Gemma 4 locally: │
-
-│ │
-
-│ Input: │
-
-│ - P4: Contact north side, 3 hostiles, engaging │
-
-│ - P5: Moving to support P4, ETA 2 min │
-
-│ - P6: South perimeter clear, holding position │
-
-│ │
-
-│ Gemma 4 compacts to: │
-
-│ Squad Alpha: Contact north (P4 engaging, P5 │
-
-│ reinforcing 2min). South clear (P6 holding). │
-
-│ │
-
-│ This summary is broadcast upward to Phone 0 (root). │
-
-│ │
-
-│ Phone 0 receives compacted summaries from ALL L1 nodes │
-
-│ and runs Gemma 4 again to produce a top-level overview: │
-
-│ │
-
-│ SITREP: Alpha engaged north, reinforcing. │
-
-│ Bravo holding east. Charlie advancing west on sched. │
-
-│ │
-
-└─────────────────────────────────────────────────────────────┘
-
-```
-
-  
+**Do not revert any of these files. Start from this state.**
 
 ---
 
-  
+## 3. What the Mission Must Deliver
 
-## 4. Bluetooth Mesh Network
+The mission has **five tracks**. Each track is independently mergeable but all must ship.
 
-  
+### Track A — Unit Tests for Fusion + Vision (required)
 
-```
+Create the following test files under `TacNetTests/`:
 
-┌──────┐ ┌──────┐ ┌──────┐
+1. `TacNetTests/Recon/TargetFusionTests.swift`
+2. `TacNetTests/Recon/BattlefieldVisionServiceTests.swift`
 
-│ P1 │◄──BT───►│ P2 │◄──BT───►│ P3 │
+Required coverage:
 
-└──┬───┘ └──┬───┘ └──┬───┘
+#### `TargetFusionTests`
 
-│ │ │
+- `testBearingAtCenter_returnsHeading` — centroid at x=500 with hFoV=68, heading=90 → bearing == 90 (±0.01).
+- `testBearingAtLeftEdge_subtractsHalfFoV` — centroid at x=0 with hFoV=68, heading=0 → bearing == 326 (±0.5, wraps below 0).
+- `testBearingAtRightEdge_addsHalfFoV` — centroid at x=1000 with hFoV=68, heading=0 → bearing == 34 (±0.5).
+- `testBearingWrapsAt360` — heading=350 + offset=20 → normalized to 10.
+- `testBearingReturnsNil_whenHeadingNil`.
+- `testPinholeDistance_knownGeometry` — 1.75 m target, 4032×3024 image, vFoV=51, box height 20 % of frame → ~7.9 m (±5 %).
+- `testPinholeDistance_returnsNil_onDegenerateBox` — box with height 0.
+- `testSuggestedHeight_coversCanonicalLabels` — `person` → 1.75, `truck` → 2.5, `drone` → 0.4, `car` → 1.5, unknown label → `nil`.
+- `testFuse_preferLidar_overPinhole` — when `lidarRangeMeters != nil`, `rangeSource == .lidar`.
+- `testFuse_rejectsInvalidBox` — box with `xMax <= xMin` → returns `nil`.
 
-BT BT BT
+#### `BattlefieldVisionServiceTests`
 
-│ │ │
+- `testBuildMessagesJSON_containsSystemPromptAndImagePath`
+- `testBuildMessagesJSON_includesCactusNativeImagesField` — asserts the user message has `images: ["<path>"]`.
+- `testBuildOptionsJSON_tokenBudget_matchesMode` — quick/standard/detail → 280/560/1120.
+- `testParseDetections_happyPath` — array of two detections decodes cleanly.
+- `testParseDetections_stripsMarkdownFence` — `\`\`\`json\n[...]\n\`\`\`` decodes.
+- `testParseDetections_returnsEmptyForEmptyArray`.
+- `testParseDetections_returnsEmptyForNonJSON` — "no targets visible." → `[]`.
+- `testParseDetections_filtersOutBadBoxLengths` — detections with `box_2d.count != 4` dropped.
+- `testScan_invokesInjectedCompleteFunctionOnce` — using a synchronous stub completion closure (do **not** call the real Cactus model in unit tests).
 
-┌──┴───┐ ┌──┴───┐ ┌──┴───┐
+Use the existing `completeFunction:` injection point on `BattlefieldVisionService.init` to stub the model.
 
-│ P4 │◄──BT───►│ P5 │◄──BT───►│ P6 │
+Register both test files in `project.pbxproj` under the `TacNetTests` target's Sources build phase (new PBXBuildFile + PBXFileReference IDs are already reserved: `F1A1001400000000000001B4`, `F1A1001500000000000001B5`, `F1A1001600000000000001B6`, `F1A1001700000000000001B7`).
 
-└──┬───┘ └──┬───┘ └──────┘
+### Track B — UI Smoke Test for Recon Tab (required)
 
-│ │
+Add to `TacNetUITests/TacNetUITests.swift` (extend the existing `TacNetUISmokeTests` class, do not create a new test file):
 
-BT BT
+- `testReconTabAppearsAndRendersEmptyState` — from the post-onboarding tab shell, tap the **Recon** tab item, assert `tacnet.recon.root` exists, assert `tacnet.recon.emptyState` is visible, assert the scan button (`tacnet.recon.scanButton`) exists. Must not require granting camera permission.
+- Update the existing `testMainTreeDataFlowSettingsTabsRenderAndSwitch` to iterate over the new 5-tab layout (recon between main and treeView).
 
-│ │
+### Track C — Documentation & Handoff (required)
 
-┌──┴───┐ ┌──┴───┐
+1. Update `IMAGE_DETECTION_TAB_PLAN.md` section 20 by replacing open questions with the actual implementation choices that landed:
+   - Mesh relay: **off by default**, gated behind a future explicit toggle. No auto-relay.
+   - Review screen: deferred; each sighting is shown in the results list before any relay is possible.
+   - Still-photo only for v1 (no live-scan, no AVCaptureVideoDataOutput).
+   - `suggestedTargetHeightMeters` table lives in `TargetFusion`; adjustable in one place.
+   - Single model (Gemma 4 E4B). No dual-model detector.
+2. Append a **“Mission Log”** section to `IMAGE_DETECTION_TAB_PLAN.md` listing every file created/modified and the build/test commands that verified them.
 
-│ P7 │◄──BT───►│ P8 │
+Do **not** touch `README.md`, `DECISIONS.md`, `SETUP_LOG.md`, or `MANUAL_TESTING.md`.
 
-└──────┘ └──────┘
+### Track D — Pinhole Fallback Sanity Check (required)
 
-  
+Author a runnable XCTest sanity assertion inside `TargetFusionTests`:
 
-BT = Bluetooth Low Energy connection
+- Given a synthetic `RawDetection` with `label: "person"`, box `[400, 450, 900, 550]` (box height 50% of frame), image size 4032×3024, vFoV 51°, heading 0, **no** LiDAR → expected range ~3.3 m (±10 %), `rangeSource == .pinhole`, bearing ~0° (±1°).
 
-Every phone connects to all phones in BT range
+This locks the fallback math against regressions.
 
-Messages hop through the mesh to reach all nodes
+### Track E — Commit & PR Hygiene (required)
 
-```
-
-  
-
-**Key properties:**
-
-- **Fully decentralized** — no central server, no internet required
-
-- **Store-and-forward** — messages hop through intermediate phones
-
-- **All nodes receive all messages** — the mesh floods every transmission
-
-- **Logical filtering happens at the app layer** — each phone decides what to play/process based on the tree hierarchy
-
-  
-
----
-
-  
-
-## 5. Node Roles & Responsibilities
-
-  
-
-Every phone in the network is identical software. The **tree configuration** determines its role:
-
-  
-
-| Role | Responsibilities | What it hears | What it produces |
-
-|------|-----------------|---------------|-----------------|
-
-| **Leaf Node** | Push-to-talk voice messages | Sibling broadcasts + parent broadcasts | Transcript text (STT on-device) |
-
-| **Intermediate Node** | PTT + compaction of children | Sibling broadcasts + parent broadcasts + child broadcasts | Transcript text AND compacted summaries from children |
-
-| **Root Node** | Compaction of all L1 summaries | L1 compacted summaries | Top-level SITREP (situation report) |
-
-All messages carry embedded GPS coordinates (lat/lon/accuracy) from Core Location automatically.
-
-  
+1. Single commit per track, `git add -p`-style, **no mass adds**. Use Conventional Commits:
+   - `feat(recon): add unit tests for TargetFusion`
+   - `feat(recon): add unit tests for BattlefieldVisionService`
+   - `test(ui): verify recon tab renders empty state`
+   - `docs(recon): resolve open questions + mission log`
+2. Run `git status` and `git diff --cached` **before every commit** and paste the summary in the commit body.
+3. Include this footer on every commit:
+   ```
+   Co-authored-by: factory-droid[bot] <138933559+factory-droid[bot]@users.noreply.github.com>
+   ```
+4. **Do not push.** The user will push manually.
 
 ---
 
-  
+## 4. Out of Scope (explicit)
 
-## 6. On-Device AI Stack
+The following are **explicitly deferred** — do not implement them in this mission:
 
-  
-
-```
-
-┌─────────────────────────────────────────────┐
-
-│ EACH PHONE RUNS: │
-
-│ │
-
-│ ┌───────────────────────────────────────┐ │
-
-│ │ Cactus AI Runtime │ │
-
-│ │ (Low-latency on-device inference) │ │
-
-│ │ │ │ │
-
-│ │ ┌─────────────────────────────────┐ │ │
-
-│ │ │ Gemma 4 E4B Model │ │ │
-
-│ │ │ (Google DeepMind's on-device │ │ │
-
-│ │ │ multimodal model with native │ │ │
-
-│ │ │ audio encoder — ~300M param │ │ │
-
-│ │ │ audio conformer, no separate │ │ │
-
-│ │ │ STT model needed) │ │ │
-
-│ │ └─────────────────────────────────┘ │ │
-
-│ └───────────────────────────────────────┘ │
-
-│ │
-
-│ ┌───────────────────────────────────────┐ │
-
-│ │ Voice Processing Pipeline (2-step) │ │
-
-│ │ │ │
-
-│ │ Step 1: Mic ─► Gemma 4 E4B ─► Text │ │
-
-│ │ (native audio conformer, STT) │ │
-
-│ │ │ │
-
-│ │ Step 2: Text ─► Gemma 4 E4B ─► │ │
-
-│ │ Compacted Summary │ │
-
-│ └───────────────────────────────────────┘ │
-
-│ │
-
-│ ┌───────────────────────────────────────┐ │
-
-│ │ Bluetooth Mesh Module │ │
-
-│ │ (Send/receive to all nearby phones) │ │
-
-│ └───────────────────────────────────────┘ │
-
-└─────────────────────────────────────────────┘
-
-```
-
-  
-
-### Why Cactus + Gemma 4 E4B?
-
-  
-
-- **Gemma 4 E4B** is Google DeepMind's on-device multimodal model with native audio input (~300M param audio conformer encoder)
-
-- **Single model** handles both STT and summarization — no separate Whisper/STT model needed
-
-- **E4B = Edge 4B** — 4.5B effective params, 8B with embeddings, ~2.8GB VRAM at INT4
-
-- **Fast** — 30s audio processes in ~0.3s on Apple Silicon, 40 tok/s decode
-
-- **Cactus** provides the low-latency inference engine optimized for mobile/edge devices
-
-- **No internet required** — entire AI pipeline runs on the phone
-
-- **Hybrid routing** — if a phone has internet, complex tasks can optionally route to cloud (but the system works fully offline)
-
-  
+- Mesh relay of sightings (no changes to `BluetoothMeshService`).
+- Live / video-rate detection (no `AVCaptureVideoDataOutput` or per-frame inference).
+- Review & confirm screen before a sighting is logged.
+- SAM / MobileSAM / SAM 3 integration (Cactus doesn't ship segmentation).
+- CoreML fallback detector.
+- Persisting sightings to disk or SwiftData.
+- Voice readout of sightings (no AVSpeechSynthesizer work).
+- Settings UI for the Recon tab.
+- x86_64 simulator link fix — the Cactus xcframework just doesn't ship that slice.
 
 ---
 
-  
-
-## 7. Message Flow: Complete Example
-
-  
-
-```
-
-TIME ACTION
-
-─────────────────────────────────────────────────────────────────
-
-  
-
-t=0 P4 (leaf) pushes talk: We've spotted movement in sector 7
-
-│
-
-├──► Bluetooth mesh floods message to ALL phones
-
-│
-
-├──► P5, P6 (siblings): DISPLAY transcript ✅ (received via mesh)
-
-├──► P1 (parent): DISPLAY transcript ✅ (received via mesh) + QUEUE for compaction
-
-├──► P0, P2, P3, P7-P9: RECEIVE transcript but IGNORE (not sibling/parent)
-
-  
-
-t=5 P5 (leaf) pushes talk: Confirmed, I see 4 individuals, armed
-
-│
-
-├──► P4, P6: DISPLAY transcript ✅ (received via mesh)
-
-├──► P1 (parent): DISPLAY transcript ✅ (received via mesh) + QUEUE for compaction
-
-  
-
-t=8 P6 (leaf) pushes talk: Rear is clear, no movement
-
-│
-
-├──► P4, P5: DISPLAY transcript ✅ (received via mesh)
-
-├──► P1 (parent): DISPLAY transcript ✅ (received via mesh) + QUEUE for compaction
-
-  
-
-t=10 P1's compaction triggers (time window / message threshold):
-
-│
-
-│ Gemma 4 processes queued messages:
-
-│ IN: spotted movement sector 7
-
-│ confirmed 4 armed individuals
-
-│ rear clear
-
-│ OUT: Squad-1: 4 armed contacts sector 7 (confirmed by 2),
-
-│ rear secure.
-
-│
-
-└──► Compacted summary broadcast with COMPACTION tag
-
-│
-
-└──► P0 (root): RECEIVES compacted summary ✅
-
-  
-
-t=12 P0 receives compacted summaries from P1, P2, P3:
-
-│
-
-│ Gemma 4 compacts all L1 summaries:
-
-│ OUT: SITREP: Squad-1 has 4 armed contacts sector 7.
-
-│ Squad-2 holding perimeter east. Squad-3 advancing
-
-│ on schedule.
-
-│
-
-└──► Displayed on root commander's screen as live SITREP
-
-```
-
-  
-
----
-
-  
-
-## 8. Message Types & Protocol
-
-  
-
-```
-
-┌──────────────────────────────────────────────────────────┐
-
-│ MESSAGE ENVELOPE │
-
-├──────────────────────────────────────────────────────────┤
-
-│ { │
-
-│ id: uuid-v4, │
-
-│ type: BROADCAST | COMPACTION | CLAIM | RELEASE | │
-│         TREE_UPDATE | PROMOTE | CLAIM_REJECTED, │
-
-│ sender_id: node-uuid, │
-
-│ sender_role: Alpha-2 (position in tree), │
-
-│ parent_id: node-uuid, │
-
-│ tree_level: 2, │
-
-│ timestamp: 1713200000, │
-
-│ ttl: 5, // mesh hop limit │
-
-│ payload: { │
-
-│ location: { lat, lon, accuracy }, // auto-embedded GPS │
-
-│ encrypted: true, // E2E via pre-shared key │
-
-│ payload: { │
-
-│   transcript: ..., // STT result (BROADCAST only) │
-
-│   summary: ..., // for COMPACTION only) │
-
-│   source_ids: [...], // messages summarized │
-
-│   // CLAIM/RELEASE/TREE_UPDATE/PROMOTE/CLAIM_REJECTED │
-
-│   // type field carries intent; payload varies by type │
-
-│ } │
-
-│ } │
-
-└──────────────────────────────────────────────────────────┘
-
-```
-
-  
-
-### Routing Rules (App Layer)
-
-  
-
-| Message Type | Sender | Who plays/displays it |
-
-|---|---|---|
-
-| `BROADCAST` | Any node | Sender's siblings + sender's parent |
-
-| `COMPACTION` | Intermediate/root node | That node's parent only |
-
-  
-
----
-
-  
-
-## 9. Tree Configuration — Organiser-Driven, Fluid Roles
-
-  
-
-The system has two distinct user modes: **Organiser** (creates the hierarchy) and **Participant** (joins and claims a role). The tree is fully customisable — there are no hardcoded roles.
-
-  
-
-### 9.1 Flow: Organiser Creates the Network
-
-  
-
-The organiser (typically the commander / site lead) opens the app first and builds the tree from scratch using a drag-and-drop editor:
-
-  
-
-```
-
-┌─────────────────────────────────────────────┐
-
-│ ORGANISER: BUILD YOUR NETWORK │
-
-│ │
-
-│ ┌─────────────────────────────────────┐ │
-
-│ │ [+ Add Root Node] │ │
-
-│ │ │ │
-
-│ │ ┌──────────────┐ │ │
-
-│ │ │ Commander │ ← tap to │ │
-
-│ │ │ (rename) │ rename │ │
-
-│ │ └──────┬───────┘ │ │
-
-│ │ │ │ │
-
-│ │ [+ Add Child] │ │
-
-│ │ │ │ │
-
-│ │ ┌────────┼────────┐ │ │
-
-│ │ │ │ │ │ │
-
-│ │ ┌──┴───┐ ┌──┴───┐ ┌──┴───┐ │ │
-
-│ │ │Alpha │ │Bravo │ │ │ │ │
-
-│ │ │Lead │ │Lead │ │[+ Add│ │ │
-
-│ │ └──┬───┘ └──────┘ │ More]│ │ │
-
-│ │ │ └──────┘ │ │
-
-│ │ [+ Add Child] │ │
-
-│ │ │ │ │
-
-│ │ ┌──┴───┐ ┌──────┐ ┌──────┐ │ │
-
-│ │ │A-1 │ │A-2 │ │[+] │ │ │
-
-│ │ └──────┘ └──────┘ └──────┘ │ │
-
-│ └─────────────────────────────────────┘ │
-
-│ │
-
-│ Network Name: [ Operation Nightfall ] │
-
-│ Network PIN: [ 4-digit optional PIN ] │
-
-│ │
-
-│ [Publish Network] │
-
-└─────────────────────────────────────────────┘
-
-```
-
-  
-
-**Organiser capabilities:**
-
-- Name each node (free text — Alpha Lead, Medic, Drone Operator, Foreman, anything)
-
-- Add/remove children at any depth
-
-- Set a network name + optional PIN for access control
-
-- Reorder nodes via drag-and-drop
-
-- Publish the tree — this starts BLE advertising the network
-
-  
-
-### 9.2 Flow: Participant Joins and Claims a Role
-
-  
-
-When a participant opens the app, they see nearby TacNet networks. They tap to join, enter the PIN if required, and then see the full tree with **available / claimed** status on every node:
-
-  
-
-```
-
-┌─────────────────────────────────────────────┐
-
-│ JOIN: Operation Nightfall │
-
-│ │
-
-│ Select your role: │
-
-│ │
-
-│ ┌──────────────────┐ │
-
-│ │ Commander │ 🔴 Claimed │
-
-│ │ (Organiser) │ by: iPhone-Jake │
-
-│ └──────┬───────────┘ │
-
-│ │ │
-
-│ ┌────────┼────────┐ │
-
-│ │ │ │ │
-
-│ ┌──┴──────┐ │ ┌─────┴────┐ │
-
-│ │ Alpha │ │ │ Charlie │ │
-
-│ │ Lead │ │ │ Lead │ │
-
-│ │ 🔴 Jake │ │ │ 🟢 OPEN │ ← tap to │
-
-│ └──┬──────┘ │ └──────────┘ claim │
-
-│ │ │ │
-
-│ ┌──┴──┐ ┌──┴──────┐ │
-
-│ │ A-1 │ │ Bravo │ │
-
-│ │🟢OPEN│ │ Lead │ │
-
-│ └─────┘ │ 🟡 Pending│ │
-
-│ └──────────┘ │
-
-│ │
-
-│ 🔴 Claimed 🟡 Pending 🟢 Open │
-
-│ │
-
-│ [ Claim Charlie Lead ] │
-
-└─────────────────────────────────────────────┘
-
-```
-
-  
-
-**Participant flow:**
-
-1. App scans BLE → discovers nearby TacNet networks
-
-2. Tap a network → enter PIN if set → receive the tree JSON
-
-3. See all nodes with live claim status (synced via BLE)
-
-4. Tap an open node → **Claim this role**
-
-5. Claim broadcasts to all peers → node turns red (claimed) on everyone's screen
-
-6. Participant is now live in the network with routing rules active
-
-  
-
-### 9.3 Role Claim Protocol
-
-  
-
-```
-
-┌──────────────────────────────────────────────────────────┐
-
-│ ROLE CLAIM PROTOCOL │
-
-│ │
-
-│ 1. DISCOVER │
-
-│ Participant scans BLE for TacNet service UUID │
-
-│ Receives: network_name, node_count, open_slots │
-
-│ │
-
-│ 2. AUTHENTICATE │
-
-│ If PIN set: participant enters PIN │
-
-│ Organiser's phone validates → grants/denies │
-
-│ │
-
-│ 3. SYNC TREE │
-
-│ Full tree JSON transferred via BLE │
-
-│ Includes claim status for every node │
-
-│ │
-
-│ 4. CLAIM │
-
-│ Participant taps open node → sends CLAIM message: │
-
-│ { │
-
-│ type: CLAIM, │
-
-│ node_id: charlie-lead, │
-
-│ device_id: iPhone-Sara, │
-
-│ timestamp: 1713200000 │
-
-│ } │
-
-│ Flooded to all peers via mesh │
-
-│ │
-
-│ 5. CONFIRM │
-
-│ All nodes update their local tree state │
-
-│ If two devices claim the same node simultaneously: │
-
-│ → organiser device wins automatically │
-
-│ → loser receives CLAIM_REJECTED: organiser_wins │
-
-│ → loser returns to role selection │
-
-│ │
-
-│ 6. RELEASE │
-
-│ If a device disconnects or user taps Release Role: │
-
-│ → RELEASE message flooded │
-
-│ → Node goes back to 🟢 OPEN │
-
-│ → Auto-release after 60s BLE disconnect timeout │
-
-│ │
-
-│ 7. LIVE UPDATES │
-
-│ Tree state changes (claim/release/new nodes) │
-
-│ are broadcast as TREE_UPDATE messages in the mesh │
-
-│ Every phone stays in sync │
-
-└──────────────────────────────────────────────────────────┘
-
-```
-
-  
-
-### 9.4 Organiser Can Modify the Tree Live
-
-  
-
-The organiser retains edit access even after publishing. They can:
-
-  
-
-| Action | What happens |
-
-|---|---|
-
-| **Add a node** | `TREE_UPDATE` broadcast → all phones see the new open slot |
-
-| **Remove an empty node** | `TREE_UPDATE` broadcast → node disappears from everyone's tree |
-
-| **Remove a claimed node** | Claimed user gets kicked back to role selection with a notification |
-
-| **Rename a node** | `TREE_UPDATE` broadcast → label updates everywhere |
-
-| **Move a node** (re-parent) | `TREE_UPDATE` broadcast → routing rules update automatically |
-| **Promote to organiser** | `PROMOTE` broadcast → target device gains organiser permissions; `created_by` updates; old organiser becomes participant |
-
-  
-
-This means the hierarchy is **fluid during operation** — if the commander needs to restructure squads mid-mission, they edit the tree and everyone's routing updates instantly.
-
-  
-
-### 9.5 Tree Config Data Model
-
-  
-
-```
-
-Example Tree Config (JSON) — as distributed over BLE:
-
-{
-
-network_name: Operation Nightfall,
-
-network_id: uuid-v4,
-
-created_by: iPhone-Jake,
-
-pin_hash: sha256..., // null if no PIN
-
-version: 7, // increments on every edit
-
-tree: {
-
-id: commander,
-
-label: Commander,
-
-claimed_by: iPhone-Jake,
-
-children: [
-
-{
-
-id: alpha-lead,
-
-label: Alpha Lead,
-
-claimed_by: iPhone-Sara,
-
-children: [
-
-{ id: alpha-1, label: Alpha-1, claimed_by: null },
-
-{ id: alpha-2, label: Alpha-2, claimed_by: iPhone-Tom },
-
-{ id: alpha-3, label: Alpha-3, claimed_by: null }
-
-]
-
-},
-
-{
-
-id: bravo-lead,
-
-label: Bravo Lead,
-
-claimed_by: null,
-
-children: [
-
-{ id: bravo-1, label: Bravo-1, claimed_by: null },
-
-{ id: bravo-2, label: Bravo-2, claimed_by: null }
-
-]
-
-}
-
-]
-
-}
-
-}
-
-```
-
-  
-
-The `version` field is key — when a phone receives a `TREE_UPDATE` with a higher version than its local copy, it replaces its tree. This ensures convergence across the mesh even if updates arrive out of order.
-
-  
-
----
-
-  
-
-## 10. Mobile UX
-
-  
-
-```
-
-┌─────────────────────────────────┐
-
-│ TacNet v1.0 │
-
-│ │
-
-│ ┌─────────────────────────┐ │
-
-│ │ LIVE FEED │ │
-
-│ │ │ │
-
-│ │ Alpha-2: Movement │ │
-
-│ │ in sector 7 │ │
-
-│ │ │ │
-
-│ │ Alpha-3: Confirmed, │ │
-
-│ │ 4 armed │ │
-
-│ │ │ │
-
-│ │ ─── COMPACTION ─── │ │
-
-│ │ Squad Alpha: 4 armed │ │
-
-│ │ contacts sector 7, │ │
-
-│ │ rear secure. │ │
-
-│ │ │ │
-
-│ └─────────────────────────┘ │
-
-│ │
-
-│ ┌─────────────────────────┐ │
-
-│ │ │ │
-
-│ │ 🎙 PUSH TO TALK │ │
-
-│ │ │ │
-
-│ └─────────────────────────┘ │
-
-│ │
-
-│ [Config] [Tree View] [Map] │
-
-└─────────────────────────────────┘
-
-```
-
-  
-
-### Screens
-
-  
-
-1. **Main Screen** — Live feed of broadcasts from siblings + compaction summaries from children. Large push-to-talk button.
-
-2. **Config Screen** — View the full tree. Tap a node to claim it as my position. Shows connection status of Bluetooth mesh peers.
-
-3. **Tree View** — Visual tree with live status indicators (active, idle, disconnected). Compaction summaries shown inline at parent nodes.
-
-4. **Data Flow Screen** — Transparent view of what the AI is doing on this phone. Shows raw input, processing status, and output.
-
-  
-
-### Data Flow Tab (Screen 4)
-
-  
-
-This screen gives full visibility into what data is entering the node, how Gemma 4 is processing it, and what is being emitted. Critical for debugging in the field and for the hackathon demo.
-
-  
-
-```
-
-┌─────────────────────────────────────┐
-
-│ DATA FLOW — Alpha Lead │
-
-│ │
-
-│ ┌─ INCOMING ─────────────────────┐ │
-
-│ │ │ │
-
-│ │ 14:02:05 Alpha-1 [BROADCAST] │ │
-
-│ │ Enemy spotted near bldg 4 │ │
-
-│ │ │ │
-
-│ │ 14:02:12 Alpha-2 [BROADCAST] │ │
-
-│ │ Confirmed, 4 armed │ │
-
-│ │ │ │
-
-│ │ 14:02:30 Alpha-3 [BROADCAST] │ │
-
-│ │ Rear clear, holding │ │
-
-│ │ │ │
-
-│ │ 14:02:35 HQ [COMPACTION ↓] │ │
-
-│ │ All squads push to obj. │ │
-
-│ └────────────────────────────────┘ │
-
-│ │
-
-│ ┌─ PROCESSING ───────────────────┐ │
-
-│ │ ⚙ Gemma 4 via Cactus │ │
-
-│ │ │ │
-
-│ │ Status: ● Compacting (3 msgs) │ │
-
-│ │ Trigger: msg_count >= 3 │ │
-
-│ │ Latency: 340ms │ │
-
-│ │ Model: gemma-4-2b-it │ │
-
-│ │ │ │
-
-│ │ Input tokens: 87 │ │
-
-│ │ Output tokens: 22 │ │
-
-│ │ Compression: 74.7% │ │
-
-│ └────────────────────────────────┘ │
-
-│ │
-
-│ ┌─ OUTGOING ─────────────────────┐ │
-
-│ │ │ │
-
-│ │ 14:02:36 [COMPACTION → HQ] │ │
-
-│ │ Squad Alpha: 4 armed │ │
-
-│ │ contacts bldg 4 (2x conf). │ │
-
-│ │ Rear secure. │ │
-
-│ │ │ │
-
-│ │ Sent to: HQ (parent) │ │
-
-│ │ Summarized: 3 messages │ │
-
-│ │ Source: Alpha-1, 2, 3 │ │
-
-│ └────────────────────────────────┘ │
-
-│ │
-
-│ [Main] [Config] [Tree] [Flow] │
-
-└─────────────────────────────────────┘
-
-```
-
-  
-
-**Data Flow tab sections:**
-
-  
-
-| Section | Contents |
-
-|---|---|
-
-| **INCOMING** | All messages this node receives and processes — broadcasts from children, compactions from below, orders from above. Timestamped, labeled by type. |
-
-| **PROCESSING** | Real-time status of the Gemma 4 compaction engine — is it idle, queuing, or actively compacting? Shows trigger reason, latency, token counts, and compression ratio. |
-
-| **OUTGOING** | Every compaction summary this node has produced and emitted upward. Shows destination, source messages summarized, and the output text. |
-
-  
-
----
-
-  
-
-## 11. Compaction Engine (Gemma 4 Prompt Design)
-
-  
-
-The on-device Gemma 4 model is prompted with a structured template:
-
-  
-
-```
-
-SYSTEM: You are a tactical communications summarizer. Compress the
-
-following radio messages from your subordinates into a brief, actionable
-
-summary. Preserve: locations, threat counts, unit status, urgent items.
-
-Remove: filler, repetition, acknowledgements. Keep under 30 words.
-
-  
-
-MESSAGES:
-
-- [Alpha-1, 14:02:05]: We've spotted movement in sector 7, over
-
-- [Alpha-2, 14:02:12]: Copy that, I can confirm, 4 individuals, armed
-
-- [Alpha-3, 14:02:30]: Rear perimeter all clear, no movement, holding
-
-  
-
-SUMMARY:
-
-```
-
-  
-
-**Output**: `Squad Alpha: 4 armed contacts sector 7 (2x confirmed). Rear clear, holding.`
-
-  
-
-### Compaction Triggers
-
-  
-
-| Trigger | Description |
-
-|---------|-------------|
-
-| **Time window** | Every N seconds (configurable, e.g. 30s) |
-
-| **Message count** | After N messages from children (e.g. 3) |
-
-| **Priority keyword** | Immediately on words like contact, casualty, emergency |
-
-  
-
----
-
-  
-
-## 12. Technical Stack
-
-  
-
-### Platform: Native iOS (Swift)
-
-  
-
-| Layer | Technology | Notes |
-
-|---|---|---|
-
-| **Language** | Swift 5.9+ | Native iOS, no cross-platform overhead |
-
-| **UI Framework** | SwiftUI | Declarative UI for all 4 tabs |
-
-| **On-Device AI** | Cactus AI SDK (Swift) + Gemma 4 E4B | Cactus provides low-latency inference; Gemma 4 E4B handles both STT and summarization natively |
-
-| **Voice Input** | AVFoundation (`AVAudioEngine`) | Push-to-talk recording, raw audio capture |
-
-| **Speech-to-Text** | Gemma 4 E4B via Cactus (native audio encoder) | Native ~300M param audio conformer — not a separate STT model. On-device only, no internet. |
-
-| **Bluetooth Mesh** | Core Bluetooth (BLE) | `CBCentralManager` + `CBPeripheralManager` — each phone acts as both central and peripheral |
-
-| **Message Serialization** | `Codable` structs → JSON → BLE | Swift-native encoding, compact payloads over GATT characteristics |
-
-| **Local Storage** | SwiftData | Full message history with full-text search for after-action review. Ring buffer optional for storage limits. |
-
-| **Audio Playback** | AVFoundation (`AVAudioPlayer`) | Local recording feedback only — received messages are text transcripts displayed in feed, not played as audio. Model weights (6.7GB INT4) are downloaded on first launch, not bundled. |
-
-| **Concurrency** | Swift Concurrency (`async`/`await`, Actors) | BLE scanning, AI inference, and audio on separate actors to avoid blocking UI |
-
-| **Tree Config** | `Codable` JSON stored in app sandbox | Shared tree distributed via BLE handshake on first mesh connection |
-
-| **Minimum iOS** | iOS 16.0+ | Required for modern Swift Concurrency, SwiftData, and stable BLE mesh APIs. |
-
-  
-
-### Architecture: Swift App Structure
-
-  
-
-```
-
-TacNet/
-
-├── TacNetApp.swift # App entry point — routes to Onboarding or Main
-
-├── Models/
-
-│ ├── TreeNode.swift # Tree hierarchy model (Codable, claimed_by, version)
-
-│ ├── NetworkConfig.swift # Network name, id, pin_hash, version, tree root
-
-│ ├── Message.swift # Message envelope (BROADCAST / COMPACTION / CLAIM / TREE_UPDATE)
-
-│ └── NodeIdentity.swift # Local state: I am this node + device ID
-
-├── Services/
-
-│ ├── BluetoothMeshService.swift # Core Bluetooth central + peripheral
-
-│ │ # Handles discovery, flooding, dedup (by UUID)
-
-│ ├── NetworkDiscoveryService.swift # Scans for nearby TacNet networks (for participants)
-
-│ ├── RoleClaimService.swift # Handles CLAIM / RELEASE protocol + conflict resolution
-
-│ ├── TreeSyncService.swift # Distributes tree updates, version-based convergence
-
-│ ├── AudioService.swift # AVAudioEngine for record + AVAudioPlayer for playback
-
-│ ├── CompactionEngine.swift # Manages Gemma 4 E4B inference via Cactus SDK
-
-│ │ # Queues child messages, triggers compaction, emits summary
-
-│ ├── ModelDownloadService.swift # Handles first-launch model download with progress UI
-
-│ │ # Downloads Gemma 4 E4B weights (6.7GB INT4) on first run
-
-│ └── MessageRouter.swift # Decides: display transcript? queue for compaction? ignore?
-
-│ # Applies tree-based routing rules
-
-├── ViewModels/
-
-│ ├── OnboardingViewModel.swift # Create vs Join network flow
-
-│ ├── TreeBuilderViewModel.swift # Organiser: add/remove/rename/reorder nodes
-
-│ ├── RoleSelectionViewModel.swift # Participant: browse tree, claim a node
-
-│ ├── MainViewModel.swift # Live feed + PTT state
-
-│ ├── TreeViewModel.swift # Visual tree with live claim indicators
-
-│ └── DataFlowViewModel.swift # Incoming / Processing / Outgoing streams
-
-├── Views/
-
-│ ├── Onboarding/
-
-│ │ ├── WelcomeView.swift # Create Network or Join Network
-
-│ │ ├── TreeBuilderView.swift # Organiser: drag-and-drop tree editor
-
-│ │ ├── NetworkScanView.swift # Participant: list of nearby networks
-
-│ │ ├── PinEntryView.swift # PIN gate (if network requires it)
-
-│ │ └── RoleSelectionView.swift # Participant: tap to claim a node
-
-│ ├── Main/
-
-│ │ ├── MainView.swift # Tab 1: Live feed + push-to-talk button
-
-│ │ ├── TreeView.swift # Tab 2: Visual tree hierarchy with live status
-
-│ │ ├── DataFlowView.swift # Tab 3: AI transparency view
-
-│ │ └── SettingsView.swift # Tab 4: Release role, edit tree (organiser only)
-
-│ └── Components/
-
-│ ├── TreeNodeView.swift # Reusable node cell (name, claim status, indicator)
-
-│ └── PTTButton.swift # Push-to-talk button component
-
-└── Utilities/
-
-├── MessageDeduplicator.swift # UUID-based seen-set for mesh flooding
-
-└── TreeHelpers.swift # Parent/sibling/children lookups
-
-```
-
-  
-
-### Key Swift Frameworks Used
-
-  
-
-```
-
-┌─────────────────────────────────────────────────────────────────┐
-
-│ iOS FRAMEWORK MAP │
-
-│ │
-
-│ ┌──────────────┐ ┌──────────────┐ ┌────────────────────┐ │
-
-│ │ SwiftUI │ │ AVFoundation │ │ Core Bluetooth │ │
-
-│ │ (All UI) │ │ (Audio I/O) │ │ (BLE Mesh) │ │
-
-│ └──────┬───────┘ └──────┬───────┘ └────────┬───────────┘ │
-
-│ │ │ │ │
-
-│ ▼ ▼ ▼ │
-
-│ ┌──────────────────────────────────────────────────────────┐ │
-
-│ │ Swift Concurrency (Actors) │ │
-
-│ │ UI Actor Audio Actor BLE Actor AI Actor │ │
-
-│ └──────────────────────────┬───────────────────────────────┘ │
-
-│ │ │
-
-│ ▼ │
-
-│ ┌──────────────────┐ │
-
-│ │ Cactus SDK │ │
-
-│ │ (Gemma 4) │ │
-
-│ └──────────────────┘ │
-
-│ │
-
-│ ┌──────────────┐ │
-
-│ │ SwiftData │ │
-
-│ │ (Storage + Search) │ │
-
-│ └──────────────┘ │
-
-└─────────────────────────────────────────────────────────────────┘
-
-```
-
-  
-
-### BLE Implementation Detail (Core Bluetooth)
-
-  
-
-Each phone runs **both** a `CBCentralManager` (scanner/client) and a `CBPeripheralManager` (advertiser/server) simultaneously:
-
-  
+## 5. Interfaces the Mission Agent May Rely On
 
 ```swift
+// Already-built Cactus entry point (Services/Cactus.swift)
+public func cactusComplete(
+    _ model: CactusModelT,
+    _ messagesJson: String,
+    _ optionsJson: String?,
+    _ toolsJson: String?,
+    _ onToken: ((String, UInt32) -> Void)?,
+    _ pcmData: Data?
+) throws -> String
 
-// Simplified BLE service architecture
-
-let tacNetServiceUUID = CBUUID(string: TACNET-...)
-
-  
-
-// GATT Characteristics:
-
-let broadcastCharUUID = CBUUID(...) // For BROADCAST messages
-
-let compactionCharUUID = CBUUID(...) // For COMPACTION messages
-
-let treeConfigCharUUID = CBUUID(...) // For initial tree sync
-
-  
-
-// Each phone:
-
-// 1. Advertises as peripheral → other phones connect to it
-
-// 2. Scans as central → connects to nearby phones
-
-// 3. On message receive → check UUID dedup → re-broadcast to all peers
-
-// 4. App layer filters by tree role (MessageRouter.swift)
-
-```
-
-  
-
-### Cactus SDK Integration
-
-  
-
-```swift
-
-// CompactionEngine.swift — uses real Cactus Swift API
-
-import Cactus
-
-  
-
-actor CompactionEngine {
-
-private var context: OpaquePointer? // Cactus context
-
-private var messageQueue: [Message] = []
-
-  
-
-init(modelPath: String) async throws {
-
-// Initialize Cactus context with Gemma 4 E4B model
-
-// cactusInit returns an OpaquePointer context
-
-let params = cactusDefaultParams()
-
-context = cactusInit(modelPath, params)
-
+// Already-built service handle (Services/Cactus.swift)
+public actor CactusModelInitializationService {
+    public static let shared: CactusModelInitializationService
+    public func initializeModelAfterEnsuringDownload(progressHandler: ...) async throws -> CactusModelT
 }
 
-  
-
-// Step 1: Transcribe audio to text (native Gemma 4 E4B audio encoder)
-
-func transcribeAudio(audioPath: String) async -> String {
-
-// cactusTranscribe uses Gemma 4 E4B's native ~300M param audio conformer
-
-// No separate STT model needed — single model handles audio input
-
-return cactusTranscribe(context, audioPath)
-
+// Recon vision actor (Services/BattlefieldVisionService.swift)
+public actor BattlefieldVisionService {
+    public init(
+        modelInitializationService: CactusModelInitializationService = .shared,
+        completeFunction: @escaping CompleteFunction = { ... },
+        tempDirectory: URL = FileManager.default.temporaryDirectory,
+        jpegQuality: CGFloat = 0.85
+    )
+    public func scan(image: UIImage, intent: String, mode: ReconScanMode) async throws -> [RawDetection]
+    // static helpers (internal) for tests:
+    static let systemPrompt: String
+    static func buildMessagesJSON(intent: String, imageURL: URL) throws -> String
+    static func buildOptionsJSON(mode: ReconScanMode) -> String
+    static func parseDetections(from response: String) throws -> [RawDetection]
 }
-
-  
-
-// Step 2: Compact/summarize transcripts
-
-func queueMessage(_ msg: Message) async -> CompactionResult? {
-
-messageQueue.append(msg)
-
-  
-
-guard shouldTriggerCompaction() else { return nil }
-
-  
-
-let prompt = buildCompactionPrompt(from: messageQueue)
-
-// cactusComplete runs text generation on Gemma 4 E4B
-
-let summary = cactusComplete(context, prompt, 64) // maxTokens: 64
-
-  
-
-let result = CompactionResult(
-
-summary: summary,
-
-sourceIDs: messageQueue.map(\\.id)
-
-)
-
-  
-
-messageQueue.removeAll()
-
-return result
-
-}
-
-  
-
-private func shouldTriggerCompaction() -> Bool {
-
-messageQueue.count >= 3 // or time-based trigger
-
-}
-
-  
-
-deinit {
-
-if let ctx = context { cactusFree(ctx) }
-
-}
-
-}
-
 ```
 
-  
+When testing `BattlefieldVisionService`, stub the `completeFunction` closure — the Cactus model must **not** be loaded in unit tests.
 
 ---
 
-  
+## 6. Exact Build & Test Commands (agent must use these)
 
-## 13. Bluetooth Mesh Protocol
+```bash
+# Device build (must be green):
+xcrun xcodebuild \
+  -project TacNet.xcodeproj \
+  -scheme TacNet \
+  -configuration Debug \
+  -destination 'generic/platform=iOS' \
+  -sdk iphoneos \
+  build \
+  CODE_SIGNING_ALLOWED=NO
 
-  
-
+# Simulator build + test (must be green):
+xcrun xcodebuild \
+  -project TacNet.xcodeproj \
+  -scheme TacNet \
+  -configuration Debug \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  test \
+  CODE_SIGNING_ALLOWED=NO
 ```
 
-┌──────────────────────────────────────────────────┐
-
-│ BLE MESH PROTOCOL │
-
-│ │
-
-│ 1. DISCOVERY │
-
-│ Phone scans for nearby TacNet devices │
-
-│ Connects to all found peers │
-
-│ │
-
-│ 2. ENCRYPT_KEY_EXCHANGE │
-
-│ After BLE connection: participant receives session key │
-
-│ Key encrypted with PIN-derived key │
-
-│ All messages AES-256 E2E encrypted │
-
-│ │
-
-│ 3. FLOODING │
-
-│ On send: message broadcast to all peers │
-
-│ On receive: if not seen before, re-broadcast │
-
-│ Dedup via message UUID │
-
-│ │
-
-│ 4. AUTO_REPARENT │
-│ If parent disconnects (60s timeout): │
-│ - Children traverse upward to find nearest connected ancestor │
-│ - TREE_UPDATE broadcast with new parent_id │
-│ - Routing rules update automatically │
-│ │
-│ 5. TTL (Time-To-Live) │
-
-│ Each message has TTL (default: 10) │
-
-│ Decremented on each hop │
-
-│ Prevents infinite loops │
-
-│ │
-
-│ 6. DELIVERY │
-
-│ All phones receive all messages │
-
-│ App layer filters by tree role │
-
-│ │
-
-│ Range per hop: ~30-100m (BLE 5.0) │
-
-│ Effective range: hops x range │
-
-└──────────────────────────────────────────────────┘
-
-```
-
-  
+If the simulator refuses to launch the app with `Application failed preflight checks / Busy`, it means another xcodebuild instance is running — **kill it and retry once**, don't start hacking.
 
 ---
 
-  
+## 7. Acceptance Criteria (machine-checkable)
 
-## 14. Hackathon Demo Scenario
+A mission run is **DONE** iff **all of** the following are true:
 
-  
+1. `git status` shows clean tree on `image-detection` except for the new test files and doc edits this mission created.
+2. `xcodebuild build` succeeds for both `iphoneos` and `iPhone 17 Pro` simulator destinations.
+3. `xcodebuild test` on `iPhone 17 Pro` reports:
+   - **All previous 14 UI smoke tests passing.**
+   - **All new `TargetFusionTests` passing (≥ 11 tests).**
+   - **All new `BattlefieldVisionServiceTests` passing (≥ 9 tests).**
+   - **New `testReconTabAppearsAndRendersEmptyState` UI test passing.**
+4. The 3 or 4 Conventional-Commit commits described in Track E exist in `git log --oneline -10` with the correct footer.
+5. No changes outside:
+   - `TacNetTests/Recon/**`
+   - `TacNetUITests/**`
+   - `IMAGE_DETECTION_TAB_PLAN.md`
+   - `Orchestrator.md` (this file; no changes expected)
+   - `TacNet.xcodeproj/project.pbxproj` (only to register new test files)
 
-### Setup: 4 phones minimum
-
-  
-
-```
-
-Phone 0 (Commander)
-
-│
-
-┌──────┴──────┐
-
-│ │
-
-Phone 1 Phone 2
-
-(Alpha Lead) (Bravo Lead)
-
-│
-
-Phone 3
-
-(Alpha-1)
-
-```
-
-  
-
-### Demo Flow
-
-  
-
-1. **Phone 3** (Alpha-1): Push to talk — Enemy spotted near building 4
-
-2. **Phone 1** (Alpha Lead): Hears the message live (sibling/parent)
-
-3. **Phone 1** auto-compacts: *Alpha: Enemy contact near building 4*
-
-4. **Phone 0** (Commander): Sees compacted summary appear on screen
-
-5. **Phone 2** (Bravo Lead): Push to talk — Bravo in position, all clear
-
-6. **Phone 0**: Sees both summaries, Gemma 4 produces: *SITREP: Alpha reports contact bldg 4. Bravo in position, clear.*
-
-  
-
-**Total demo time: ~2 minutes. Zero internet. Zero servers.**
-
-  
+If any of the above fails, the mission agent **must self-heal** (fix + re-run) before returning control. Don't hand back a red tree.
 
 ---
 
-  
+## 8. Risks & Mitigations
 
-## 15. Why This Wins at the Hackathon
-
-  
-
-| Criteria | TacNet |
-
-|---|---|
-
-| **Uses Cactus** | Core inference engine on every phone |
-
-| **Uses Gemma 4** | On-device voice-to-summary, the exact new capability |
-
-| **Voice-controlled** | Push-to-talk is the primary interaction |
-
-| **On-device** | Fully offline, no cloud dependency |
-
-| **Novel** | No one has done AI-compacted hierarchical comms over BLE mesh |
-
-| **Demo-able** | Works with 3-4 phones in a room, visually compelling |
-
-| **Real-world impact** | Military, disaster relief, construction, events |
-
-  
+| Risk                                                                            | Mitigation                                                                                   |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Cactus model loads in unit tests and blows the 6.44 GB download                 | Always inject a stub `completeFunction`; never touch `.shared` in `setUp`.                   |
+| ARKit session fails on non-LiDAR devices                                        | Already handled: `RangeProvider.mode == .unavailable` → `TargetFusion` falls back to pinhole. |
+| Flaky UI test because camera permission sheet appears                           | New UI test runs on the empty-state branch before ever tapping scan.                         |
+| `project.pbxproj` merge conflicts                                               | Use reserved IDs from section 3 Track A; do not renumber existing entries.                   |
+| Gemma emits prose before the JSON array                                         | `parseDetections` locates the outermost `[` and `]` and slices between them.                  |
 
 ---
 
-  
+## 9. Hand-off Checklist (mission agent must produce)
 
-## 16. Extension Opportunities
+At mission end, produce a single markdown report containing:
 
-  
+1. Files added (path + SHA after commit).
+2. Files modified (path + diff line count).
+3. Build command outputs (last 20 lines each).
+4. Test count summary: `<suite>: <passed>/<total>`.
+5. Any deferred TODO items with rationale.
 
-- **Priority escalation**: Gemma 4 detects urgency keywords and escalates directly to root, bypassing normal compaction timing
-
-- **Two-way summaries**: Commander sends orders downward, compacted/expanded at each level for appropriate detail
-
-- **Two-way summaries**: Commander sends orders downward, compacted and expanded at each level for appropriate detail at each tier
-- **Offline-first sync**: When internet is available, sync all raw messages to cloud for after-action review
-- **Multi-language**: Gemma 4 translates messages between nodes speaking different languages
-- **Map view**: GPS coordinates auto-embedded in all messages — commander sees all node positions on a shared map (5th UI tab)
-
-  
+Send this report back to the orchestrator. The user will review it before pushing.
 
 ---
 
-  
+## 10. One-Line Summary for the Mission Agent
 
-## 17. Data Flow Diagram (Complete)
-
-  
-
-```
-
-┌─────────┐
-
-│ ROOT │
-
-│ Phone 0 │
-
-└────┬────┘
-
-│
-
-┌──────────┼──────────┐
-
-│ │ │
-
-▼ ▼ ▼
-
-┌─────────┐┌─────────┐┌─────────┐
-
-│ L1 Node ││ L1 Node ││ L1 Node │
-
-│ Phone 1 ││ Phone 2 ││ Phone 3 │
-
-└────┬────┘└─────────┘└────┬────┘
-
-│ │
-
-┌────┼────┐ ┌────┼────┐
-
-│ │ │ │ │ │
-
-▼ ▼ ▼ ▼ ▼ ▼
-
-P4 P5 P6 P7 P8 P9
-
-  
-  
-
-════════════════════════════════════════
-
-BROADCAST (blue): Sibling ↔ Sibling + Child → Parent
-
-COMPACTION (purple): Parent collects → Gemma 4 summarizes → sends UP
-
-════════════════════════════════════════
-
-  
-
-P4 speaks ──►┬──► P5 hears (sibling) ─── BROADCAST
-
-├──► P6 hears (sibling) ─── BROADCAST
-
-└──► P1 hears (parent) ─── BROADCAST
-
-│
-
-▼
-
-P1 collects P4+P5+P6 msgs
-
-P1 runs Gemma 4 compaction
-
-P1 emits summary ─── COMPACTION
-
-│
-
-▼
-
-P0 collects P1+P2+P3 summaries
-
-P0 runs Gemma 4 compaction
-
-P0 displays top-level SITREP ─── COMPACTION
-
-```
-
-  
-
----
-
-  
-
-*Built for the Cactus x Gemma 4 Hackathon at YC HQ*
-
----
-
-## 18. Design Decisions & Clarifications
-
-The following decisions were made to refine the spec:
-
-| Decision | Choice |
-|---|---|
-| **Minimum iOS** | iOS 16.0+ | SwiftData, modern Swift Concurrency, stable BLE mesh APIs required. |
-| **Cactus SDK** | Real SDK — XCFramework built from source (86s build), Swift API via Cactus.swift |
-| **Audio over BLE** | Audio is NEVER transmitted. Only transcript text crosses the mesh. No BLE audio profile. |
-| **STT** | Native via Gemma 4 E4B audio encoder (~300M params). No Whisper, no Apple Speech. Two-step: transcribe first, then compact. |
-| **Compaction latency** | 1-2s target — acceptable for tactical use, prioritizes accuracy over raw speed. Benchmarked: 30s audio end-to-end in 0.3s, 40 tok/s decode on Apple Silicon. |
-| **Tree editor** | Full drag-and-drop UI — add/remove/reparent/reorder nodes visually. |
-| **Message history** | Full persistence with search — supports after-action review. |
-| **Role transfer** | Organiser can promote any claimed node to organiser mid-operation. |
-| **Conflict resolution** | If two devices race to claim the same node, organiser device wins automatically. |
-| **Dynamic reparenting** | If a parent goes offline, children automatically reparent to the nearest available ancestor. |
-| **Encryption** | End-to-end encryption on all BLE messages using a pre-shared key established on network join. |
-| **Location data** | GPS coordinates embedded automatically in all messages. |
-| **Model delivery** | Download on first launch (6.7GB INT4) |
-| **Model tier** | E4B on all devices for MVP simplicity (4.5B params, ~2.8GB VRAM) |
-| **Scope** | Full spec, no cuts. 5 milestones. |
-| **Testing** | XCTest for logic + manual device testing for BLE/AI |
+> **Add unit + UI tests for the Recon tab that already exists on `image-detection`, update `IMAGE_DETECTION_TAB_PLAN.md` open questions, register new test files in `project.pbxproj`, and prove everything stays green on iPhone 17 Pro simulator. No new features, no pushes, no scope creep.**

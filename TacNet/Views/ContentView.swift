@@ -243,6 +243,7 @@ struct ContentView: View {
                     dataFlowViewModel: appNetworkCoordinator.dataFlowViewModel,
                     settingsViewModel: appNetworkCoordinator.settingsViewModel,
                     afterActionReviewViewModel: appNetworkCoordinator.afterActionReviewViewModel,
+                    reconViewModel: appNetworkCoordinator.reconViewModel,
                     onBackToRoleSelection: {
                         onboardingRoute = .roleSelection
                     }
@@ -1332,6 +1333,7 @@ private struct RoleSelectionView: View {
 
 enum TacNetTab: String, CaseIterable, Identifiable {
     case main
+    case recon
     case treeView
     case dataFlow
     case settings
@@ -1342,6 +1344,8 @@ enum TacNetTab: String, CaseIterable, Identifiable {
         switch self {
         case .main:
             return "Main"
+        case .recon:
+            return "Recon"
         case .treeView:
             return "Tree View"
         case .dataFlow:
@@ -1355,6 +1359,8 @@ enum TacNetTab: String, CaseIterable, Identifiable {
         switch self {
         case .main:
             return "dot.radiowaves.left.and.right"
+        case .recon:
+            return "viewfinder"
         case .treeView:
             return "point.3.filled.connected.trianglepath.dotted"
         case .dataFlow:
@@ -1371,6 +1377,7 @@ private struct TacNetTabShellView: View {
     @ObservedObject var dataFlowViewModel: DataFlowViewModel
     @ObservedObject var settingsViewModel: SettingsViewModel
     @ObservedObject var afterActionReviewViewModel: AfterActionReviewViewModel
+    @ObservedObject var reconViewModel: ReconViewModel
     let onBackToRoleSelection: () -> Void
 
     @State private var selectedTab: TacNetTab = .main
@@ -1385,6 +1392,13 @@ private struct TacNetTabShellView: View {
                 Label(TacNetTab.main.title, systemImage: TacNetTab.main.systemImage)
             }
             .tag(TacNetTab.main)
+
+            ReconView(viewModel: reconViewModel)
+                .tabItem {
+                    Label(TacNetTab.recon.title, systemImage: TacNetTab.recon.systemImage)
+                }
+                .tag(TacNetTab.recon)
+                .accessibilityIdentifier("tacnet.tab.recon")
 
             TreeView(viewModel: treeViewModel)
                 .tabItem {
@@ -3437,6 +3451,7 @@ final class AppNetworkCoordinator: ObservableObject {
     let dataFlowViewModel: DataFlowViewModel
     let settingsViewModel: SettingsViewModel
     let afterActionReviewViewModel: AfterActionReviewViewModel
+    let reconViewModel: ReconViewModel
 
     private let messageRouter: MessageRouter
     private let compactionEngineFactory: CompactionEngineFactory
@@ -3495,6 +3510,7 @@ final class AppNetworkCoordinator: ObservableObject {
         )
         dataFlowViewModel = DataFlowViewModel()
         settingsViewModel = SettingsViewModel(roleClaimService: roleClaimService)
+        reconViewModel = ReconViewModel()
         mainViewModel.onBroadcastPublished = { [weak self] message in
             self?.afterActionReviewViewModel.record(message)
         }

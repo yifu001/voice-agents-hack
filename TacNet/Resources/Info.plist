@@ -24,10 +24,14 @@
 	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>TacNet uses Bluetooth to discover nearby peers and relay tactical messages.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>TacNet uses the camera to scan the battlefield and identify targets on-device with Gemma 4.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>TacNet uses your location to attach situational coordinates to messages.</string>
+	<string>TacNet uses your location and compass heading to compute bearing to detected targets.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>TacNet needs microphone access for push-to-talk transcription.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>TacNet uses motion data to refine bearings when the device is tilted.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
