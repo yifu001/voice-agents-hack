@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var identity: NodeIdentity
+    @EnvironmentObject var tts: TTSService
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -13,6 +14,10 @@ struct SettingsView: View {
                     } else {
                         Text("Not selected").foregroundStyle(.secondary)
                     }
+                }
+
+                Section("Output") {
+                    Toggle("Read summaries aloud", isOn: $tts.isEnabled)
                 }
 
                 Section {
@@ -55,5 +60,7 @@ struct SettingsView: View {
 }
 
 #Preview {
-    SettingsView().environmentObject(NodeIdentity())
+    SettingsView()
+        .environmentObject(NodeIdentity())
+        .environmentObject(TTSService())
 }

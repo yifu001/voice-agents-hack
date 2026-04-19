@@ -22,6 +22,7 @@
 		896D4F4398F31BF2F8A8DC1D /* MeshMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60974A85F2A6A5C81E1246A1 /* MeshMessage.swift */; };
 		98E409FEE1D052810F15B800 /* RetrievalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05968F9A818F5EABA86D4001 /* RetrievalView.swift */; };
 		A469B30C03553642825A47B5 /* STTStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A2E0FE7145FFACDEB3232A /* STTStatusBar.swift */; };
+		B1F2A3C4D5E6F7081234ABCD /* TTSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F2A3C4D5E6F7081234ABCE /* TTSService.swift */; };
 		A4E70806D215F79F27420C68 /* NodeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1540DA1A880968B8654840 /* NodeSelectionView.swift */; };
 		A67AA2B1A2D111A6208B8D57 /* MeshManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30D29A78DC6BCA46769DFAFB /* MeshManager.swift */; };
 		C5A187F2B33AB91318242F79 /* cactus-ios.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B756C15CD7B4C16BA72B3ADB /* cactus-ios.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -69,6 +70,7 @@
 		8D4FC9E0D656ECE801E93156 /* SummaryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryStore.swift; sourceTree = "<group>"; };
 		91A71F1D740DCC4B8988C230 /* MeshNodeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshNodeApp.swift; sourceTree = "<group>"; };
 		A1A2E0FE7145FFACDEB3232A /* STTStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = STTStatusBar.swift; sourceTree = "<group>"; };
+		B1F2A3C4D5E6F7081234ABCE /* TTSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSService.swift; sourceTree = "<group>"; };
 		AA0350DACFB7EF35C5C6E781 /* MeshPeripheral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshPeripheral.swift; sourceTree = "<group>"; };
 		AF1540DA1A880968B8654840 /* NodeSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeSelectionView.swift; sourceTree = "<group>"; };
 		B756C15CD7B4C16BA72B3ADB /* cactus-ios.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "cactus-ios.xcframework"; path = "Vendor/cactus-ios.xcframework"; sourceTree = "<group>"; };
@@ -95,6 +97,7 @@
 				0CE7DAEED7B03E17B061D95D /* AudioRecorder.swift */,
 				034B00B29E704C3560FA7E6C /* MicButton.swift */,
 				A1A2E0FE7145FFACDEB3232A /* STTStatusBar.swift */,
+				B1F2A3C4D5E6F7081234ABCE /* TTSService.swift */,
 			);
 			path = Audio;
 			sourceTree = "<group>";
@@ -263,6 +266,7 @@
 				A469B30C03553642825A47B5 /* STTStatusBar.swift in Sources */,
 				28199ED8DD5E2D21A5BB9D03 /* SettingsView.swift in Sources */,
 				3D186CB4449783D4E4CFB7B1 /* SummaryStore.swift in Sources */,
+				B1F2A3C4D5E6F7081234ABCD /* TTSService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

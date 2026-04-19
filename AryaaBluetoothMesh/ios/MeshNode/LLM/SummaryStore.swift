@@ -15,9 +15,11 @@ final class SummaryStore: ObservableObject {
     private var inFlight: Set<String> = []
 
     private let llm: LLMService
+    private let tts: TTSService?
 
-    init(llm: LLMService) {
+    init(llm: LLMService, tts: TTSService? = nil) {
         self.llm = llm
+        self.tts = tts
     }
 
     func status(for messageID: String) -> Status? {
@@ -42,6 +44,7 @@ final class SummaryStore: ObservableObject {
                 entries[messageID] = .failed
             } else {
                 entries[messageID] = .done(summary)
+                tts?.speak(summary)
             }
             inFlight.remove(messageID)
         }

@@ -5,6 +5,7 @@ struct ContentView: View {
     @EnvironmentObject var identity: NodeIdentity
     @EnvironmentObject var summaries: SummaryStore
     @EnvironmentObject var llm: LLMService
+    @EnvironmentObject var tts: TTSService
 
     var body: some View {
         TabView {
@@ -93,7 +94,9 @@ private struct ChatTab: View {
                 }
             }
             .sheet(isPresented: $showSettings) {
-                SettingsView().environmentObject(identity)
+                SettingsView()
+                        .environmentObject(identity)
+                        .environmentObject(tts)
             }
         }
     }
