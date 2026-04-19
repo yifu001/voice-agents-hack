@@ -156,11 +156,12 @@ struct RetrievalView: View {
     }
 
     /// Max number of recent messages to include in the LLM context.
-    /// Gemma 2B has a small context window (~2-4K tokens); keeping this
-    /// low prevents the prompt from being silently truncated.
-    private static let maxContextMessages = 20
+    /// Gemma 4 2B uses sliding window attention (~512-1024 tokens).
+    private static let maxContextMessages = 10
     /// Hard character cap for the chat-context block (~4 chars ≈ 1 token).
-    private static let maxContextChars = 1500
+    /// Prompt overhead ≈ 80 tokens, output budget = 128 tokens,
+    /// leaving ~300-800 tokens for logs. 800 chars ≈ 200 tokens.
+    private static let maxContextChars = 800
 
     private func start() {
         guard let selfID = identity.nodeID else { return }
@@ -185,7 +186,8 @@ struct RetrievalView: View {
         var charBudget = Self.maxContextChars
         for msg in relevant.reversed() {
             let ago = Self.relativeTime(msg.timestamp)
-            let line = "\(msg.senderId) \(ago): \(msg.payload)"
+            let short = String(msg.senderId.prefix(6))
+            let line = "\(short) \(ago): \(msg.payload)"
             if charBudget - line.count < 0 { break }
             charBudget -= line.count
             lines.append(line)
@@ -216,7 +218,7 @@ struct RetrievalView: View {
                 ["role": "user", "content": prompt],
             ]
             var raw = ""
-            for await token in llm.completeStream(messages: messages, maxTokens: 256) {
+            for await token in llm.completeStream(messages: messages, maxTokens: 128) {
                 if Task.isCancelled { break }
                 raw += token
             }

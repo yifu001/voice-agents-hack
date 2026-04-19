@@ -175,23 +175,32 @@ final class LLMService: ObservableObject {
         }
     }
 
-    /// Condensed persona for summarization — keeps Ranger voice without
-    /// eating half the context window. The full soul.md (~4KB / ~1000 tokens)
-    /// caused context overflow on messages longer than ~2 sentences.
-    private static let summarySoul = """
-    You are a military signal relay. Rewrite operator messages as terse \
-    third-person reports. Present tense. No emoji. No markdown. No filler. \
-    Callsigns only. Unknown equals UNK. Output is TTS-destined.
-    """
+    /// Max input characters for summarization. The Gemma 4 2B KV cache has
+    /// a sliding window of ~512-1024 tokens. Our prompt overhead is ~120
+    /// tokens, output budget is 60, leaving ~330-830 for the message.
+    /// 1200 chars ≈ 300 tokens — fits comfortably in the worst case.
+    private static let maxSummariseInputChars = 1200
 
     func summarise(_ text: String, role: OutputPostProcessor.EarpieceRole = .summary) async -> String {
+        // Truncate long messages so prompt + input always fits the sliding window.
+        let capped: String
+        if text.count > Self.maxSummariseInputChars {
+            capped = String(text.prefix(Self.maxSummariseInputChars))
+        } else {
+            capped = text
+        }
         let cap = role.wordCap
+        // One-shot example teaches the model the task more effectively than
+        // lengthy instructions — critical for a 2B model with limited context.
         let userPrompt = """
-        \(Self.summarySoul)
-        Compact this message to max \(cap) words. Output only the relay.
+        Rewrite the operator message as a terse third-person relay. \
+        Present tense. Max \(cap) words. No emoji. No markdown.
 
-        Message: \(text)
+        Example:
+        Message: yeah we're in the foyer, saw one guy, dropped him, room looks clear I think
+        Relay: Foyer clear, one EKIA.
 
+        Message: \(capped)
         Relay:
         """
         let messages: [[String: String]] = [
