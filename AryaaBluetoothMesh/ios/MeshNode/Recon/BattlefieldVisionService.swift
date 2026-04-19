@@ -77,8 +77,8 @@ final class BattlefieldVisionService {
     init(
         llmService: LLMService,
         tempDirectory: URL = FileManager.default.temporaryDirectory,
-        jpegQuality: CGFloat = 0.8,
-        maxModelImageDimension: CGFloat = 768
+        jpegQuality: CGFloat = 0.65,
+        maxModelImageDimension: CGFloat = 640
     ) {
         self.llmService = llmService
         self.tempDirectory = tempDirectory
@@ -146,16 +146,14 @@ final class BattlefieldVisionService {
 
     private static func buildMessages(intent: String, imageURL: URL) throws -> [[String: Any]] {
         let imagePath = imageURL.path
-        let prompt = """
-        \(systemPrompt)
-
-        Requested categories:
-        \(intent)
-        """
         return [
             [
+                "role": "system",
+                "content": systemPrompt
+            ],
+            [
                 "role": "user",
-                "content": prompt,
+                "content": "Requested categories:\n\(intent)",
                 "images": [imagePath]
             ]
         ]
@@ -165,9 +163,9 @@ final class BattlefieldVisionService {
         [
             "max_tokens": mode.maxResponseTokens,
             "temperature": 0.0,
+            "image_token_budget": mode.tokenBudget,
             "top_p": 0.95,
             "top_k": 40,
-            "image_token_budget": mode.tokenBudget,
             "stop_sequences": ["<|im_end|>", "<end_of_turn>"]
         ]
     }

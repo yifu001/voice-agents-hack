@@ -19,9 +19,10 @@ DerivedData/
 Packages/
 Package.resolved
 
-# Local model weights — huge, never commit.
-# Rebuild with `cactus download <model>` (see AryaaBluetoothMesh/ios/SETUP.md).
+# MeshNode app (AryaaBluetoothMesh): all local model weights and tokenizer assets.
+# Huge; never commit. Populate locally (see AryaaBluetoothMesh/ios/SETUP.md).
 AryaaBluetoothMesh/ios/MeshNode/Models/
+AryaaBluetoothMesh/ios/MeshNode/Models/**
 
 # Vendored binary frameworks — rebuild with `cactus build --apple`.
 # See AryaaBluetoothMesh/ios/SETUP.md.

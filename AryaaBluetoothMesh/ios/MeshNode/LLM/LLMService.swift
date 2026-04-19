@@ -112,31 +112,47 @@ final class LLMService: ObservableObject {
         log.info("LLM complete (hasImages=\(hasImages, privacy: .public), hasTools=\(hasTools, privacy: .public), options=\(optionsJSON ?? "nil", privacy: .public))")
         log.info("LLM request body: \(messagesJSON.prefix(400), privacy: .public)")
 
-        return try await withCheckedThrowingContinuation { continuation in
-            inferenceQueue.async {
-                // Stop any in-flight generation, then fully reset KV cache
-                // and token history. cactusStop is critical for vision calls —
-                // without it, stale image embedding state from a previous
-                // vision call can corrupt subsequent completions.
-                cactusStop(model)
-                cactusReset(model)
-                log.info("Model stopped + reset before completion")
-                do {
-                    let result = try cactusComplete(
-                        model,
-                        messagesJSON,
-                        optionsJSON,
-                        toolsJSON,
-                        nil as ((String, UInt32) -> Void)?
-                    )
-                    log.info("LLM complete result (\(result.count) chars): \(result.prefix(300), privacy: .public)")
-                    continuation.resume(returning: result)
-                } catch {
-                    let cactusErr = cactusGetLastError()
-                    log.error("LLM complete FAILED: \(error.localizedDescription, privacy: .public) cactusError='\(cactusErr, privacy: .public)'")
-                    continuation.resume(throwing: error)
+        do {
+            return try await withCheckedThrowingContinuation { continuation in
+                inferenceQueue.async {
+                    cactusStop(model)
+                    cactusReset(model)
+                    log.info("Model stopped + reset before completion")
+                    do {
+                        let raw = try cactusComplete(
+                            model,
+                            messagesJSON,
+                            optionsJSON,
+                            toolsJSON,
+                            nil as ((String, UInt32) -> Void)?
+                        )
+                        log.info("LLM complete result (\(raw.count) chars): \(raw.prefix(300), privacy: .public)")
+                        let result = Self.extractResponseField(from: raw)
+                        log.info("LLM complete extracted (\(result.count) chars): \(result.prefix(200), privacy: .public)")
+                        continuation.resume(returning: result)
+                    } catch {
+                        let cactusErr = cactusGetLastError()
+                        log.error("LLM complete FAILED: \(error.localizedDescription, privacy: .public) cactusError='\(cactusErr, privacy: .public)'")
+                        continuation.resume(throwing: error)
+                    }
                 }
             }
+        } catch {
+            // Back on MainActor — safe to inspect and mutate model state.
+            // A bad_alloc means the C model's internal allocations are in an
+            // undefined state. Destroy the handle now and reset to notLoaded so
+            // the next call gets a clean reinit instead of using a broken handle.
+            let desc = error.localizedDescription
+            if desc.contains("bad_alloc") || desc.contains("Cannot map file") {
+                log.warning("Memory failure detected — destroying model handle, will reinit on next call")
+                if let handle = self.model {
+                    self.model = nil
+                    self.state = .notLoaded
+                    // Destroy the C handle on the inference queue (already idle at this point).
+                    inferenceQueue.async { cactusDestroy(handle) }
+                }
+            }
+            throw error
         }
     }
 
@@ -207,7 +223,8 @@ final class LLMService: ObservableObject {
                         continuation.yield(token)
                     }
                 } catch {
-                    log.error("cactusComplete failed: \(error.localizedDescription, privacy: .public)")
+                    let cactusErr = cactusGetLastError()
+                    log.error("completeStream failed: \(error.localizedDescription, privacy: .public) cactusErr='\(cactusErr, privacy: .public)'")
                 }
                 self.lastInferenceEnd = DispatchTime.now()
                 continuation.finish()
@@ -244,9 +261,6 @@ final class LLMService: ObservableObject {
 
     func summarise(_ text: String, role: OutputPostProcessor.EarpieceRole = .summary) async -> String {
         let userPrompt = """
-        \(Self.summarySoul)
-
-        --- TASK ---
         Compact the following operator message into a terse third-person relay. \
         Max \(role.wordCap) words. No preamble, no quotes, no commentary. \
         Output only the compacted relay.
@@ -256,15 +270,20 @@ final class LLMService: ObservableObject {
 
         Relay:
         """
-        let messages: [[String: String]] = [
+        let messages: [[String: Any]] = [
+            ["role": "system", "content": Self.summarySoul],
             ["role": "user", "content": userPrompt],
         ]
-        var out = ""
-        for await token in completeStream(messages: messages, maxTokens: 60, temperature: 0.2) {
-            out += token
+        do {
+            let raw = try await complete(
+                messages: messages,
+                options: ["max_tokens": 60, "temperature": 0.2]
+            )
+            return postProcessor.process(raw.trimmingCharacters(in: .whitespacesAndNewlines), role: role)
+        } catch {
+            log.error("summarise failed: \(error.localizedDescription, privacy: .public)")
+            return ""
         }
-        let raw = out.trimmingCharacters(in: .whitespacesAndNewlines)
-        return postProcessor.process(raw, role: role)
     }
 
     func visionBundleStatus() -> VisionBundleStatus {
@@ -273,6 +292,18 @@ final class LLMService: ObservableObject {
 
     deinit {
         if let model { cactusDestroy(model) }
+    }
+
+    /// cactusComplete returns a JSON envelope identical to cactusTranscribe:
+    /// {"success":true,"response":"<actual text>","prefill_tps":...,"decode_tps":...}
+    /// Extract the "response" field so callers only see the model's generated text,
+    /// not the telemetry payload. Falls back to raw string if parsing fails.
+    private static func extractResponseField(from raw: String) -> String {
+        guard let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let response = json["response"] as? String
+        else { return raw }
+        return response
     }
 
     private static func encodeJSON(_ object: Any) -> String? {

@@ -159,8 +159,9 @@ final class STTService: ObservableObject {
             }
         } catch {
             let description = error.localizedDescription
-            if !forceRefresh, description.contains("Cannot map file") {
-                log.warning("Parakeet mmap failed, recopying model bundle and retrying once")
+            if !forceRefresh,
+               description.contains("Cannot map file") || description.contains("Cannot open file") {
+                log.warning("Parakeet file access failed (\(description, privacy: .public)) — recopying model bundle and retrying once")
                 loadModel(forceRefresh: true)
                 return
             }
@@ -187,21 +188,109 @@ final class STTService: ObservableObject {
                                      appropriateFor: nil, create: true)
         let writable = appSupport.appendingPathComponent(modelName)
 
+        let sentinel = writable.appendingPathComponent(".copy_complete")
+
         if forceRefresh, fm.fileExists(atPath: writable.path) {
             try? fm.removeItem(at: writable)
         } else if fm.fileExists(atPath: writable.path) {
-            // Verify the copy is intact — check a known weight file exists.
-            let probe = writable.appendingPathComponent("layer_0_conv_pointwise1.weights")
-            if !fm.fileExists(atPath: probe.path) {
-                log.warning("Parakeet copy is incomplete — deleting and re-copying")
+            // Only trust the copy if the sentinel was written at the very end
+            // of a successful transfer. A single weight-file probe is not enough
+            // because files are copied alphabetically and a mid-transfer crash
+            // leaves early files present while later ones are missing.
+            if !fm.fileExists(atPath: sentinel.path) {
+                log.warning("Parakeet copy is incomplete (no sentinel) — deleting and re-copying")
                 try? fm.removeItem(at: writable)
             }
         }
 
         if !fm.fileExists(atPath: writable.path) {
             log.info("Copying \(modelName, privacy: .public) to Application Support…")
-            try fm.copyItem(at: bundleURL, to: writable)
+            try materializeDirectory(from: bundleURL, to: writable)
+            try "ok".write(to: sentinel, atomically: true, encoding: .utf8)
+            log.info("Parakeet copy complete — sentinel written")
         }
         return writable.path
+    }
+
+    private static func materializeDirectory(from source: URL, to destination: URL) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: destination, withIntermediateDirectories: true)
+
+        guard let enumerator = fm.enumerator(
+            at: source,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            throw NSError(
+                domain: "STT",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "failed to enumerate bundled model directory"]
+            )
+        }
+
+        for case let sourceURL as URL in enumerator {
+            let relativePath = sourceURL.path.replacingOccurrences(of: source.path + "/", with: "")
+            let destinationURL = destination.appendingPathComponent(relativePath)
+            let values = try sourceURL.resourceValues(forKeys: [.isDirectoryKey])
+
+            if values.isDirectory == true {
+                try fm.createDirectory(at: destinationURL, withIntermediateDirectories: true)
+            } else {
+                try fm.createDirectory(
+                    at: destinationURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try streamCopyFile(from: sourceURL, to: destinationURL)
+            }
+        }
+    }
+
+    private static func streamCopyFile(from source: URL, to destination: URL) throws {
+        guard let input = InputStream(url: source),
+              let output = OutputStream(url: destination, append: false) else {
+            throw NSError(
+                domain: "STT",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "failed to open model file streams"]
+            )
+        }
+
+        input.open()
+        output.open()
+        defer {
+            input.close()
+            output.close()
+        }
+
+        let bufferSize = 1 << 20
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+
+        while input.hasBytesAvailable {
+            let readCount = input.read(buffer, maxLength: bufferSize)
+            if readCount < 0 {
+                throw input.streamError ?? NSError(
+                    domain: "STT",
+                    code: 4,
+                    userInfo: [NSLocalizedDescriptionKey: "failed reading bundled model file"]
+                )
+            }
+            if readCount == 0 {
+                break
+            }
+
+            var bytesWritten = 0
+            while bytesWritten < readCount {
+                let written = output.write(buffer.advanced(by: bytesWritten), maxLength: readCount - bytesWritten)
+                if written <= 0 {
+                    throw output.streamError ?? NSError(
+                        domain: "STT",
+                        code: 5,
+                        userInfo: [NSLocalizedDescriptionKey: "failed writing model file copy"]
+                    )
+                }
+                bytesWritten += written
+            }
+        }
     }
 }

@@ -1,4 +1,7 @@
 import SwiftUI
+import os
+
+private let log = Logger(subsystem: "com.cactushack.MeshNode", category: "retrieval")
 
 struct RetrievalView: View {
     @EnvironmentObject var mesh: MeshManager
@@ -9,8 +12,8 @@ struct RetrievalView: View {
     @State private var question: String = ""
     @State private var composedPrompt: String?
     @State private var answer: String = ""
-    @State private var isStreaming: Bool = false
-    @State private var streamTask: Task<Void, Never>?
+    @State private var isAnswering: Bool = false
+    @State private var answerTask: Task<Void, Never>?
 
     private let postProcessor = OutputPostProcessor()
 
@@ -64,7 +67,7 @@ struct RetrievalView: View {
                     .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.tODDim, lineWidth: 1))
                     .font(.callout)
                     .lineLimit(1...4)
-                if isStreaming {
+                if isAnswering {
                     Button(action: cancel) {
                         Text("STOP")
                             .font(.caption.monospaced()).bold().tracking(2)
@@ -120,6 +123,7 @@ struct RetrievalView: View {
         !question.trimmingCharacters(in: .whitespaces).isEmpty
             && identity.nodeID != nil
             && llm.isReady
+            && !isAnswering
     }
 
     private var output: some View {
@@ -194,13 +198,13 @@ struct RetrievalView: View {
         }
         let contextBlock = lines.reversed().joined(separator: "\n")
 
-        // Flat prompt with identity anchors to prevent chatbot fallbacks.
-        // Data first, question last, instruction at the generation boundary.
-        let prompt = """
+        let systemInstruction = """
         You are TacNet Personal AI. You are not a chatbot. You do not converse. \
         You are a military briefer. You answer questions using radio logs. \
         Present tense. No emoji. No markdown. Never fabricate. Unknown equals UNK.
+        """
 
+        let userPrompt = """
         Radio logs:
         \(contextBlock)
 
@@ -210,24 +214,30 @@ struct RetrievalView: View {
         Answer:
         """
 
-        composedPrompt = prompt
+        composedPrompt = "\(systemInstruction)\n\n\(userPrompt)"
         answer = ""
-        isStreaming = true
+        isAnswering = true
 
-        streamTask = Task {
-            let messages: [[String: String]] = [
-                ["role": "user", "content": prompt],
+        answerTask = Task {
+            let messages: [[String: Any]] = [
+                ["role": "system", "content": systemInstruction],
+                ["role": "user", "content": userPrompt],
             ]
-            var raw = ""
-            for await token in llm.completeStream(messages: messages, maxTokens: 128, temperature: 0.2) {
-                if Task.isCancelled { break }
-                raw += token
+            log.info("Retrieval: context=\(contextBlock.count, privacy: .public) chars question=\(trimmed, privacy: .public)")
+            do {
+                let raw = try await llm.complete(
+                    messages: messages,
+                    options: ["max_tokens": 256, "temperature": 0.2]
+                )
+                log.info("Retrieval raw (\(raw.count, privacy: .public) chars): \(raw.prefix(300), privacy: .public)")
+                let processed = postProcessor.process(raw.trimmingCharacters(in: .whitespacesAndNewlines), role: .briefing)
+                log.info("Retrieval processed: \(processed, privacy: .public)")
+                answer = processed.isEmpty ? "Unable to brief. Rephrase or check mesh traffic." : processed
+            } catch {
+                log.error("Retrieval failed: \(error.localizedDescription, privacy: .public)")
+                answer = "Retrieval failed: \(error.localizedDescription)"
             }
-            let processed = postProcessor.process(raw, role: .briefing)
-            // If post-processing stripped everything (model produced only chatbot junk),
-            // show a meaningful fallback instead of blank.
-            answer = processed.isEmpty ? "Unable to brief. Rephrase or check mesh traffic." : processed
-            isStreaming = false
+            isAnswering = false
         }
     }
 
@@ -240,9 +250,9 @@ struct RetrievalView: View {
     }
 
     private func cancel() {
-        streamTask?.cancel()
-        streamTask = nil
-        isStreaming = false
+        answerTask?.cancel()
+        answerTask = nil
+        isAnswering = false
     }
 }
 

@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreGraphics
 import Foundation
+import ImageIO
 import UIKit
 import os
 
@@ -36,6 +37,7 @@ final class CameraCaptureService: NSObject, ObservableObject {
 
     private let sessionQueue = DispatchQueue(label: "meshnode.recon.captureSession", qos: .userInitiated)
     private let photoOutput = AVCapturePhotoOutput()
+    private let captureMaxDimension: CGFloat = 640
     private var activeDevice: AVCaptureDevice?
     private var pendingContinuation: CheckedContinuation<CameraShot, Error>?
 
@@ -184,8 +186,8 @@ final class CameraCaptureService: NSObject, ObservableObject {
         defer { session.commitConfiguration() }
 
         // Recon only needs enough fidelity for Gemma detections, not a full
-        // 12MP still pipeline, which is much heavier on-device.
-        session.sessionPreset = .high
+        // photo-quality pipeline, which is much heavier on-device.
+        session.sessionPreset = .medium
 
         for input in session.inputs {
             session.removeInput(input)
@@ -271,7 +273,7 @@ extension CameraCaptureService: AVCapturePhotoCaptureDelegate {
             }
 
             guard let data = photo.fileDataRepresentation(),
-                  let image = UIImage(data: data) else {
+                  let image = self.makeCaptureImage(from: data) else {
                 log.error("Photo delegate returned no image data")
                 continuation.resume(throwing: CameraCaptureError.noImageData)
                 return
@@ -290,5 +292,29 @@ extension CameraCaptureService: AVCapturePhotoCaptureDelegate {
             )
             continuation.resume(returning: shot)
         }
+    }
+
+    @MainActor
+    private func makeCaptureImage(from data: Data) -> UIImage? {
+        let sourceOptions: [CFString: Any] = [
+            kCGImageSourceShouldCache: false
+        ]
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions as CFDictionary) else {
+            return nil
+        }
+
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCache: false,
+            kCGImageSourceShouldCacheImmediately: false,
+            kCGImageSourceThumbnailMaxPixelSize: Int(captureMaxDimension)
+        ]
+
+        if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) {
+            return UIImage(cgImage: cgImage)
+        }
+
+        return nil
     }
 }

@@ -90,13 +90,6 @@ struct ReconView: View {
 
     private var controls: some View {
         VStack(spacing: 10) {
-            if let scanWarningMessage = viewModel.scanWarningMessage {
-                Text(scanWarningMessage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
             TextField("Custom scan prompt (optional)", text: $viewModel.customIntent, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...3)

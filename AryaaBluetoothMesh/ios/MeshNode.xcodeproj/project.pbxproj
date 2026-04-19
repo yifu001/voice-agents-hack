@@ -12,7 +12,6 @@
 		1EA9489C515B5F64D3B9BF11 /* MapTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1AC818D5CB23C992DF31065 /* MapTab.swift */; };
 		28199ED8DD5E2D21A5BB9D03 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7D61192EE9E86FB5BB81B97 /* SettingsView.swift */; };
 		2C5EB5211A3783A603ACC262 /* MeshCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B3D9D836E3DA3F39B7A419A /* MeshCache.swift */; };
-		C4F70000000000000000002A /* MeshCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F70000000000000000001A /* MeshCrypto.swift */; };
 		356FC2802476F36F3D46A180 /* Models in Resources */ = {isa = PBXBuildFile; fileRef = 1362FBB4E08B776CF2F564B3 /* Models */; };
 		3D186CB4449783D4E4CFB7B1 /* SummaryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D4FC9E0D656ECE801E93156 /* SummaryStore.swift */; };
 		3F40690ABBCB0F18FAACC3A8 /* MeshCentral.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CA35AE9D2BBBE3A46684A26 /* MeshCentral.swift */; };
@@ -40,6 +39,7 @@
 		A469B30C03553642825A47B5 /* STTStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A2E0FE7145FFACDEB3232A /* STTStatusBar.swift */; };
 		A4E70806D215F79F27420C68 /* NodeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1540DA1A880968B8654840 /* NodeSelectionView.swift */; };
 		A67AA2B1A2D111A6208B8D57 /* MeshManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30D29A78DC6BCA46769DFAFB /* MeshManager.swift */; };
+		C4F70000000000000000002A /* MeshCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F70000000000000000001A /* MeshCrypto.swift */; };
 		C5A187F2B33AB91318242F79 /* cactus-ios.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = B756C15CD7B4C16BA72B3ADB /* cactus-ios.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C606BDC3EFEFB96B51CB9D35 /* LLMService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39DA7F94564B939431B8D70B /* LLMService.swift */; };
 		C817E5EA070F1D2F66250266 /* WaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06A8E92DD5BA760F85B3A88C /* WaveformView.swift */; };
@@ -76,7 +76,6 @@
 		1362FBB4E08B776CF2F564B3 /* Models */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Models; path = MeshNode/Models; sourceTree = SOURCE_ROOT; };
 		1961B320B9FD7920D223FDEF /* OutputPostProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputPostProcessor.swift; sourceTree = "<group>"; };
 		1B3D9D836E3DA3F39B7A419A /* MeshCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshCache.swift; sourceTree = "<group>"; };
-		C4F70000000000000000001A /* MeshCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshCrypto.swift; sourceTree = "<group>"; };
 		1F87A10C7352EDCA5C518914 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
 		27D5FC382B4C057B023CD302 /* MeshNode.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MeshNode.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		30D29A78DC6BCA46769DFAFB /* MeshManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshManager.swift; sourceTree = "<group>"; };
@@ -108,6 +107,7 @@
 		B756C15CD7B4C16BA72B3ADB /* cactus-ios.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "cactus-ios.xcframework"; path = "Vendor/cactus-ios.xcframework"; sourceTree = "<group>"; };
 		B9195C650B42985DD5E272B1 /* Cactus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Cactus.swift; sourceTree = "<group>"; };
 		C0AE4C8DD97155C227733E5D /* STTService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = STTService.swift; sourceTree = "<group>"; };
+		C4F70000000000000000001A /* MeshCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshCrypto.swift; sourceTree = "<group>"; };
 		D7D61192EE9E86FB5BB81B97 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		E1AC818D5CB23C992DF31065 /* MapTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapTab.swift; sourceTree = "<group>"; };
 		F307BC666D9AB8905CDA68CA /* GraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphView.swift; sourceTree = "<group>"; };
@@ -427,7 +427,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 3M277DY6BJ;
+				DEVELOPMENT_TEAM = 9L92JZM53P;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -455,7 +455,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 3M277DY6BJ;
+				DEVELOPMENT_TEAM = 9L92JZM53P;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
