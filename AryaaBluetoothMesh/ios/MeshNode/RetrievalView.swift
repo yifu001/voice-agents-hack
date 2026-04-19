@@ -153,34 +153,53 @@ struct RetrievalView: View {
         }
     }
 
+    /// Max number of recent messages to include in the LLM context.
+    /// Gemma 2B has a small context window (~2-4K tokens); keeping this
+    /// low prevents the prompt from being silently truncated.
+    private static let maxContextMessages = 20
+    /// Hard character cap for the chat-context block (~4 chars ≈ 1 token).
+    private static let maxContextChars = 1500
+
     private func start() {
         guard let selfID = identity.nodeID else { return }
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
         let reachable = identity.nodesWithinRadius(identity.contextRadius, from: selfID)
+        // Take only the most recent messages that fit the budget.
         let relevant = mesh.messages
             .filter { reachable.contains($0.senderId) }
             .sorted { $0.timestamp < $1.timestamp }
+            .suffix(Self.maxContextMessages)
 
-        let contextBlock = relevant.isEmpty
-            ? "(no messages in context)"
-            : relevant.map { "[\($0.timestamp)] Node \($0.senderId): \($0.payload)" }
-                .joined(separator: "\n")
+        let contextBlock: String
+        if relevant.isEmpty {
+            contextBlock = "(no messages in context)"
+        } else {
+            var lines: [String] = []
+            var charBudget = Self.maxContextChars
+            // Build from most-recent backwards, then reverse so oldest is first.
+            for msg in relevant.reversed() {
+                let short = String(msg.senderId.prefix(6))
+                let ago = Self.relativeTime(msg.timestamp)
+                let line = "\(short) (\(ago)): \(msg.payload)"
+                if charBudget - line.count < 0 { break }
+                charBudget -= line.count
+                lines.append(line)
+            }
+            contextBlock = lines.reversed().joined(separator: "\n")
+        }
 
-        let reachableList = reachable.sorted().joined(separator: ", ")
+        let reachableList = reachable.map { String($0.prefix(6)) }
+            .sorted().joined(separator: ", ")
 
         let prompt = """
-        Reachable nodes within radius \(identity.contextRadius): \(reachableList)
-
-        --- Chat context ---
+        Nodes: \(reachableList)
+        --- Chat context (recent) ---
         \(contextBlock)
-
         --- Question ---
         \(trimmed)
-
-        --- Instructions ---
-        Answer the user's question.
+        Answer concisely.
         """
 
         composedPrompt = prompt
@@ -191,12 +210,20 @@ struct RetrievalView: View {
             let messages: [[String: String]] = [
                 ["role": "user", "content": prompt],
             ]
-            for await token in llm.completeStream(messages: messages, maxTokens: 512) {
+            for await token in llm.completeStream(messages: messages, maxTokens: 256) {
                 if Task.isCancelled { break }
                 answer += token
             }
             isStreaming = false
         }
+    }
+
+    private static func relativeTime(_ epochMs: Int64) -> String {
+        let seconds = Int(Date().timeIntervalSince1970) - Int(epochMs / 1000)
+        if seconds < 60 { return "\(seconds)s ago" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes)m ago" }
+        return "\(minutes / 60)h ago"
     }
 
     private func cancel() {
