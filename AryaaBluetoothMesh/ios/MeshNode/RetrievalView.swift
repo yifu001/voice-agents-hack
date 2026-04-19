@@ -4,6 +4,7 @@ struct RetrievalView: View {
     @EnvironmentObject var mesh: MeshManager
     @EnvironmentObject var identity: NodeIdentity
     @EnvironmentObject var llm: LLMService
+    @EnvironmentObject var audio: AudioRecorder
 
     @State private var question: String = ""
     @State private var composedPrompt: String?
@@ -24,52 +25,75 @@ struct RetrievalView: View {
     }
 
     private var composer: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Stepper(value: $identity.contextRadius, in: 0...10) {
-                HStack {
-                    Text("Context radius").font(.subheadline)
-                    Spacer()
-                    Text("\(identity.contextRadius)")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
+        VStack(spacing: 14) {
+            HStack {
+                Stepper(value: $identity.contextRadius, in: 0...10) {
+                    HStack(spacing: 6) {
+                        Text("CONTEXT RADIUS")
+                            .font(.caption2.monospaced()).tracking(2)
+                            .foregroundStyle(Color.tMuted)
+                        Text("\(identity.contextRadius)")
+                            .font(.callout.monospacedDigit().bold())
+                            .foregroundStyle(Color.tKhaki)
+                    }
                 }
+                Spacer(minLength: 0)
+                llmStatus
+            }
+            .padding(.horizontal)
+
+            WaveformView().padding(.horizontal, 20)
+
+            MicButton(size: .hero) { text in
+                question = text
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Ask a question")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    llmStatus
-                }
-                HStack(spacing: 8) {
-                    TextField("Your question…", text: $question, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(1...4)
-                    MicButton { text in
-                        question = text
+            Text(audio.isRecording ? "RELEASE TO TRANSCRIBE" : "HOLD TO SPEAK")
+                .font(.caption2.monospaced()).tracking(2)
+                .foregroundStyle(Color.tMuted)
+
+            STTStatusBar()
+
+            HStack(spacing: 8) {
+                TextField("type instead…", text: $question, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .padding(10)
+                    .background(Color.tSurface2)
+                    .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.tODDim, lineWidth: 1))
+                    .font(.callout)
+                    .lineLimit(1...4)
+                if isStreaming {
+                    Button(action: cancel) {
+                        Text("STOP")
+                            .font(.caption.monospaced()).bold().tracking(2)
+                            .frame(width: 70, height: 40)
+                            .background(Color.tAlert)
+                            .foregroundStyle(Color.tInk)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
                     }
-                }
-                STTStatusBar()
-                HStack {
-                    if let selfID = identity.nodeID {
-                        Text("Node \(selfID) · radius \(identity.contextRadius)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                } else {
+                    Button(action: start) {
+                        Text("ANSWER")
+                            .font(.caption.monospaced()).bold().tracking(2)
+                            .frame(width: 70, height: 40)
+                            .background(canAsk ? Color.tOD : Color.tODDim)
+                            .foregroundStyle(Color.tInk)
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
                     }
-                    Spacer()
-                    if isStreaming {
-                        Button("Stop", role: .destructive) { cancel() }
-                    } else {
-                        Button("Answer", action: start)
-                            .buttonStyle(.borderedProminent)
-                            .disabled(!canAsk)
-                    }
+                    .disabled(!canAsk)
                 }
             }
+            .padding(.horizontal)
+
+            if let selfID = identity.nodeID {
+                Text("NODE \(selfID) · RADIUS \(identity.contextRadius)")
+                    .font(.caption2.monospaced()).tracking(1.5)
+                    .foregroundStyle(Color.tMuted)
+            }
         }
-        .padding()
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity)
+        .background(Color.tSurface)
     }
 
     private var llmStatus: some View {
@@ -102,12 +126,13 @@ struct RetrievalView: View {
                 if !answer.isEmpty {
                     section(title: "Answer", body: answer, mono: false)
                 }
-                if let composedPrompt {
+                if identity.developerMode, let composedPrompt {
                     section(title: "Prompt", body: composedPrompt, mono: true)
                 }
                 if answer.isEmpty && composedPrompt == nil {
-                    Text("Ask a question to generate a prompt and stream an answer.")
-                        .foregroundStyle(.secondary)
+                    Text("Hold the mic or type a question, then tap ANSWER.")
+                        .font(.callout)
+                        .foregroundStyle(Color.tMuted)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 40)
                 }
@@ -155,7 +180,7 @@ struct RetrievalView: View {
         \(trimmed)
 
         --- Instructions ---
-        Answer the user's question after understanding the full context of the situation above. Be concise and factual; if the context is insufficient, say so explicitly.
+        Answer the user's question.
         """
 
         composedPrompt = prompt

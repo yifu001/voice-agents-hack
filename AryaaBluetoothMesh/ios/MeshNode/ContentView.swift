@@ -1,5 +1,13 @@
 import SwiftUI
 
+struct DisplayMessage: Identifiable {
+    enum Style { case standard, paraphrased, awaiting }
+    let message: MeshMessage
+    let style: Style
+    let displayPayload: String
+    var id: String { message.id }
+}
+
 struct ContentView: View {
     @EnvironmentObject var mesh: MeshManager
     @EnvironmentObject var identity: NodeIdentity
@@ -8,10 +16,12 @@ struct ContentView: View {
 
     var body: some View {
         TabView {
-            ChatTab(title: "All", messages: mesh.messages)
-                .tabItem { Label("All", systemImage: "bubble.left.and.bubble.right") }
-            ChatTab(title: "Node", messages: nodeMessages)
-                .tabItem { Label("Node", systemImage: "person.crop.circle") }
+            ChatTab(messages: nodeMessages)
+                .tabItem { Label("Node", systemImage: "person.crop.square") }
+            if identity.developerMode {
+                ChatTab(overrideTitle: "ALL", messages: allMessages)
+                    .tabItem { Label("All", systemImage: "bubble.left.and.bubble.right") }
+            }
             RetrievalView()
                 .tabItem { Label("Retrieval", systemImage: "sparkles.rectangle.stack") }
         }
@@ -19,6 +29,12 @@ struct ContentView: View {
         .onChange(of: mesh.messages.count) { _, _ in kickOffPendingSummaries() }
         .onChange(of: llm.state) { _, newValue in
             if newValue == .ready { kickOffPendingSummaries() }
+        }
+    }
+
+    private var allMessages: [DisplayMessage] {
+        mesh.messages.map { msg in
+            DisplayMessage(message: msg, style: .standard, displayPayload: msg.payload)
         }
     }
 
@@ -31,34 +47,32 @@ struct ContentView: View {
         }
     }
 
-    private var nodeMessages: [MeshMessage] {
+    private var nodeMessages: [DisplayMessage] {
         mesh.messages.compactMap { msg in
-            if msg.senderId == mesh.selfId { return msg }
+            if msg.senderId == mesh.selfId {
+                return DisplayMessage(message: msg, style: .standard, displayPayload: msg.payload)
+            }
             guard let edgeType = identity.incomingEdgeType(fromSenderID: msg.senderId) else {
                 return nil
             }
             switch edgeType {
             case .exact:
-                return msg
+                return DisplayMessage(message: msg, style: .standard, displayPayload: msg.payload)
             case .summary:
-                let summaryPayload: String
                 switch summaries.status(for: msg.id) {
                 case .done(let s):
-                    summaryPayload = "SUMMARY: " + s
-                case .pending:
-                    summaryPayload = "Summarising…"
+                    return DisplayMessage(message: msg, style: .paraphrased, displayPayload: s)
                 case .failed:
-                    summaryPayload = "SUMMARY: " + msg.payload
+                    return DisplayMessage(message: msg, style: .paraphrased, displayPayload: msg.payload)
+                case .pending:
+                    return DisplayMessage(message: msg, style: .awaiting, displayPayload: "…")
                 case .none:
-                    summaryPayload = llm.isReady ? "Summarising…" : "(awaiting model) " + msg.payload
+                    if llm.isReady {
+                        return DisplayMessage(message: msg, style: .awaiting, displayPayload: "…")
+                    } else {
+                        return DisplayMessage(message: msg, style: .awaiting, displayPayload: "awaiting model — " + msg.payload)
+                    }
                 }
-                return MeshMessage(
-                    senderId: msg.senderId,
-                    msgId: msg.msgId,
-                    ttl: msg.ttl,
-                    timestamp: msg.timestamp,
-                    payload: summaryPayload
-                )
             }
         }
     }
@@ -67,20 +81,23 @@ struct ContentView: View {
 private struct ChatTab: View {
     @EnvironmentObject var mesh: MeshManager
     @EnvironmentObject var identity: NodeIdentity
-    let title: String
-    let messages: [MeshMessage]
+    var overrideTitle: String? = nil
+    let messages: [DisplayMessage]
     @State private var draft: String = ""
     @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                debugBar
-                Divider()
+                if identity.developerMode {
+                    debugBar
+                    Divider()
+                }
                 messageList
                 Divider()
                 composer
             }
+            .background(Color.tBG)
             .navigationTitle(navTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -99,28 +116,28 @@ private struct ChatTab: View {
     }
 
     private var navTitle: String {
-        let node = identity.currentNode.map { " · \($0.id)" } ?? ""
-        return "\(title)\(node)"
+        if let overrideTitle { return overrideTitle }
+        return identity.currentNode.map { "NODE \($0.id)" } ?? "NODE"
     }
 
     private var debugBar: some View {
         HStack(spacing: 8) {
-            stat("Peers", mesh.connectedPeerCount)
-            stat("Sent",  mesh.sentCount)
-            stat("Recv",  mesh.receivedCount)
-            stat("Fwd",   mesh.forwardedCount)
-            stat("Dedup", mesh.dedupedCount)
+            stat("PEERS", mesh.connectedPeerCount)
+            stat("SENT",  mesh.sentCount)
+            stat("RECV",  mesh.receivedCount)
+            stat("FWD",   mesh.forwardedCount)
+            stat("DEDUP", mesh.dedupedCount)
         }
-        .font(.caption.monospacedDigit())
+        .font(.caption2.monospacedDigit())
         .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(Color(uiColor: .secondarySystemBackground))
+        .padding(.vertical, 6)
+        .background(Color.tSurface)
     }
 
     private func stat(_ label: String, _ value: Int) -> some View {
         VStack(spacing: 2) {
-            Text(label).foregroundStyle(.secondary)
-            Text("\(value)").bold()
+            Text(label).foregroundStyle(Color.tMuted)
+            Text("\(value)").foregroundStyle(Color.tKhaki).bold()
         }
         .frame(maxWidth: .infinity)
     }
@@ -128,9 +145,9 @@ private struct ChatTab: View {
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(messages) { msg in
-                        messageRow(msg).id(msg.id)
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(messages) { row in
+                        messageRow(row).id(row.id)
                     }
                 }
                 .padding()
@@ -143,42 +160,104 @@ private struct ChatTab: View {
         }
     }
 
-    private func messageRow(_ msg: MeshMessage) -> some View {
-        let isSelf = msg.senderId == mesh.selfId
-        return HStack {
-            if isSelf { Spacer() }
-            VStack(alignment: isSelf ? .trailing : .leading, spacing: 2) {
-                Text(msg.payload)
-                    .padding(8)
-                    .background(isSelf ? Color.accentColor.opacity(0.2)
-                                       : Color(uiColor: .systemGray5))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                Text("\(shortId(msg.senderId)) · TTL \(msg.ttl)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+    @ViewBuilder
+    private func messageRow(_ row: DisplayMessage) -> some View {
+        let isSelf = row.message.senderId == mesh.selfId
+        HStack(alignment: .top) {
+            if isSelf { Spacer(minLength: 40) }
+            if !isSelf && row.style == .paraphrased {
+                Rectangle()
+                    .fill(Color.tKhaki)
+                    .frame(width: 2)
             }
-            if !isSelf { Spacer() }
+            VStack(alignment: isSelf ? .trailing : .leading, spacing: 4) {
+                if !isSelf && row.style == .paraphrased {
+                    Text("PARAPHRASED")
+                        .font(.caption2.monospaced())
+                        .tracking(1.5)
+                        .foregroundStyle(Color.tKhaki)
+                }
+                Text(row.displayPayload)
+                    .italic(row.style == .paraphrased || row.style == .awaiting)
+                    .foregroundStyle(row.style == .awaiting ? Color.tMuted : Color.tInk)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(bubbleBackground(isSelf: isSelf, style: row.style))
+                    .overlay(bubbleBorder(isSelf: isSelf, style: row.style))
+                Text(meta(for: row.message))
+                    .font(.caption2.monospaced())
+                    .tracking(0.5)
+                    .foregroundStyle(Color.tMuted)
+            }
+            if !isSelf && row.style != .paraphrased {
+                Spacer(minLength: 40)
+            }
         }
     }
 
+    private func bubbleBackground(isSelf: Bool, style: DisplayMessage.Style) -> some View {
+        if isSelf {
+            return Color.tOD.opacity(0.28)
+        } else if style == .paraphrased {
+            return Color.tSurface2
+        } else {
+            return Color.tSurface
+        }
+    }
+
+    @ViewBuilder
+    private func bubbleBorder(isSelf: Bool, style: DisplayMessage.Style) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
+        if isSelf {
+            shape.strokeBorder(Color.tOD.opacity(0.45), lineWidth: 1)
+        } else if style == .paraphrased {
+            shape.strokeBorder(Color.tKhaki.opacity(0.4), lineWidth: 1)
+        } else {
+            shape.strokeBorder(Color.tODDim.opacity(0.6), lineWidth: 1)
+        }
+    }
+
+    private func meta(for msg: MeshMessage) -> String {
+        "\(shortId(msg.senderId)) · TTL \(msg.ttl)"
+    }
+
     private var composer: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 10) {
             STTStatusBar()
+            WaveformView()
+                .padding(.horizontal, 20)
+            MicButton(size: .hero) { text in
+                mesh.send(text: text)
+            }
+            Text("HOLD TO SPEAK")
+                .font(.caption2.monospaced())
+                .tracking(2)
+                .foregroundStyle(Color.tMuted)
             HStack(spacing: 8) {
-                TextField("Message", text: $draft, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
+                TextField("type instead…", text: $draft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .padding(10)
+                    .background(Color.tSurface2)
+                    .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.tODDim, lineWidth: 1))
+                    .font(.callout)
                     .lineLimit(1...3)
                     .submitLabel(.send)
                     .onSubmit(sendDraft)
-                MicButton { text in
-                    mesh.send(text: text)
+                Button(action: sendDraft) {
+                    Image(systemName: "arrow.up")
+                        .font(.body.bold())
+                        .frame(width: 40, height: 40)
+                        .background(draft.trimmingCharacters(in: .whitespaces).isEmpty ? Color.tODDim : Color.tOD)
+                        .foregroundStyle(Color.tInk)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
                 }
-                Button("Send", action: sendDraft)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .padding()
+            .padding(.horizontal)
         }
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity)
+        .background(Color.tSurface)
     }
 
     private func sendDraft() {
@@ -191,8 +270,15 @@ private struct ChatTab: View {
     }
 }
 
+private extension Text {
+    func italic(_ on: Bool) -> Text {
+        on ? self.italic() : self
+    }
+}
+
 #Preview {
     ContentView()
         .environmentObject(MeshManager(nodeID: "PREVIEW"))
         .environmentObject(NodeIdentity())
+        .environmentObject(LLMService())
 }

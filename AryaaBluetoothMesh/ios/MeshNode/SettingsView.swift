@@ -7,6 +7,19 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    VStack(spacing: 12) {
+                        GraphView()
+                        GraphLegend()
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.tSurface)
+                } header: {
+                    Text("Mesh graph")
+                }
+
                 Section("Current node") {
                     if let node = identity.currentNode {
                         nodeRow(node, selected: true)
@@ -31,6 +44,18 @@ struct SettingsView: View {
                     Text("Changing the node resets the mesh session on this device.")
                 }
 
+                Section {
+                    Toggle(isOn: $identity.developerMode) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Developer mode")
+                            Text("Show mesh stats bar in the Node tab.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Diagnostics")
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)

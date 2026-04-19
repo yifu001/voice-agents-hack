@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let log = Logger(subsystem: "com.cactushack.MeshNode", category: "llm")
 
 @MainActor
 final class LLMService: ObservableObject {
@@ -62,7 +65,11 @@ final class LLMService: ObservableObject {
                 "temperature": temperature,
             ] as [String: Any])
 
+            log.info("LLM complete (maxTokens=\(maxTokens, privacy: .public), temp=\(temperature, privacy: .public)) prompt: \(messagesJSON, privacy: .public)")
+
             inferenceQueue.async {
+                // Clear any prior conversation state so each call is independent.
+                cactusReset(model)
                 _ = try? cactusComplete(model, messagesJSON, optionsJSON, nil as String?) { token, _ in
                     continuation.yield(token)
                 }

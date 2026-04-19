@@ -1,28 +1,46 @@
 import SwiftUI
 
 struct MicButton: View {
+    enum Size { case compact, hero }
+
     @EnvironmentObject var audio: AudioRecorder
     @EnvironmentObject var stt: STTService
+    var size: Size = .hero
     let onTranscribed: (String) -> Void
 
     @State private var isPressing = false
 
     var body: some View {
-        Group {
-            if stt.isTranscribing {
-                ProgressView().tint(.white)
-            } else {
-                Image(systemName: audio.isRecording ? "mic.fill" : "mic")
-                    .font(.title2)
+        ZStack {
+            if audio.isRecording {
+                ForEach(0..<3) { i in
+                    Circle()
+                        .strokeBorder(Color.tOD.opacity(0.28 - Double(i) * 0.08), lineWidth: 1)
+                        .frame(width: outer + CGFloat(i) * 18 * CGFloat(audio.level + 0.2),
+                               height: outer + CGFloat(i) * 18 * CGFloat(audio.level + 0.2))
+                        .animation(.easeOut(duration: 0.18), value: audio.level)
+                }
+            }
+            Circle()
+                .fill(background)
+                .overlay(
+                    Circle().strokeBorder(strokeColor, lineWidth: 1.5)
+                )
+                .frame(width: diameter, height: diameter)
+
+            Group {
+                if stt.isTranscribing {
+                    ProgressView().tint(Color.tInk)
+                } else {
+                    Image(systemName: audio.isRecording ? "mic.fill" : "mic")
+                        .font(iconFont)
+                        .foregroundStyle(Color.tInk)
+                }
             }
         }
-        .frame(width: 44, height: 44)
-        .background(background)
-        .foregroundStyle(.white)
-        .clipShape(Circle())
-        .scaleEffect(audio.isRecording ? 1.0 + CGFloat(audio.level) * 0.25 : 1.0)
-        .animation(.easeOut(duration: 0.08), value: audio.level)
-        .opacity(enabled ? 1.0 : 0.4)
+        .frame(width: outer, height: outer)
+        .contentShape(Circle())
+        .opacity(enabled ? 1.0 : 0.35)
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
@@ -42,9 +60,26 @@ struct MicButton: View {
         stt.isReady && !stt.isTranscribing
     }
 
+    private var diameter: CGFloat {
+        size == .hero ? 80 : 44
+    }
+
+    private var outer: CGFloat {
+        size == .hero ? 120 : 60
+    }
+
+    private var iconFont: Font {
+        size == .hero ? .system(size: 32, weight: .semibold) : .title2
+    }
+
     private var background: Color {
-        if stt.isTranscribing { return .blue }
-        return audio.isRecording ? .red : .accentColor
+        if stt.isTranscribing { return Color.tODDim }
+        return audio.isRecording ? Color.tAlert : Color.tOD
+    }
+
+    private var strokeColor: Color {
+        if stt.isTranscribing { return Color.tKhaki }
+        return audio.isRecording ? Color.tAlert.opacity(0.8) : Color.tOD.opacity(0.6)
     }
 
     private func begin() async {

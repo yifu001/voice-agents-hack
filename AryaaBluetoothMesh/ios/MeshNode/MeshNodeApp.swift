@@ -9,17 +9,21 @@ struct MeshNodeApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if let nodeID = identity.nodeID {
-                MeshRootView(nodeID: nodeID, llm: llm, stt: stt)
-                    .environmentObject(identity)
-                    .environmentObject(llm)
-                    .environmentObject(stt)
-                    .environmentObject(audio)
-                    .id(nodeID)
-            } else {
-                NodeSelectionView()
-                    .environmentObject(identity)
+            Group {
+                if let nodeID = identity.nodeID {
+                    MeshRootView(nodeID: nodeID, llm: llm, stt: stt)
+                        .environmentObject(identity)
+                        .environmentObject(llm)
+                        .environmentObject(stt)
+                        .environmentObject(audio)
+                        .id(nodeID)
+                } else {
+                    NodeSelectionView()
+                        .environmentObject(identity)
+                }
             }
+            .preferredColorScheme(.dark)
+            .tint(.tOD)
         }
     }
 }

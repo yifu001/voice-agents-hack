@@ -34,11 +34,15 @@ private struct UndirectedGraphFile: Codable {
 final class NodeIdentity: ObservableObject {
     private static let nodeKey = "NODE_ID"
     private static let radiusKey = "CONTEXT_RADIUS"
+    private static let devKey = "DEVELOPER_MODE"
     private static let defaultRadius = 2
 
     @Published private(set) var nodeID: String?
     @Published var contextRadius: Int {
         didSet { UserDefaults.standard.set(contextRadius, forKey: Self.radiusKey) }
+    }
+    @Published var developerMode: Bool {
+        didSet { UserDefaults.standard.set(developerMode, forKey: Self.devKey) }
     }
 
     let availableNodes: [GraphNode]
@@ -54,6 +58,7 @@ final class NodeIdentity: ObservableObject {
         self.nodeID = UserDefaults.standard.string(forKey: Self.nodeKey)
         let storedRadius = UserDefaults.standard.object(forKey: Self.radiusKey) as? Int
         self.contextRadius = storedRadius ?? Self.defaultRadius
+        self.developerMode = UserDefaults.standard.bool(forKey: Self.devKey)
     }
 
     var isSelected: Bool { nodeID != nil }
