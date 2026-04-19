@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		18312D775A1E9A835F9E70FE /* OutputPostProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1961B320B9FD7920D223FDEF /* OutputPostProcessor.swift */; };
 		1C97881D991F23C6CF69F9AF /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CE7DAEED7B03E17B061D95D /* AudioRecorder.swift */; };
 		1EA9489C515B5F64D3B9BF11 /* MapTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1AC818D5CB23C992DF31065 /* MapTab.swift */; };
 		28199ED8DD5E2D21A5BB9D03 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7D61192EE9E86FB5BB81B97 /* SettingsView.swift */; };
@@ -34,6 +35,7 @@
 		C817E5EA070F1D2F66250266 /* WaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06A8E92DD5BA760F85B3A88C /* WaveformView.swift */; };
 		C9D9A4943A086F83A27EFFC9 /* MeshPeripheral.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0350DACFB7EF35C5C6E781 /* MeshPeripheral.swift */; };
 		D0CAC7E056CB2B0D91267690 /* graph.json in Resources */ = {isa = PBXBuildFile; fileRef = 7ADDC4DB706DD2CA6525A239 /* graph.json */; };
+		D921A5D2DD2C1568222743CC /* soul.md in Resources */ = {isa = PBXBuildFile; fileRef = 4D5A4669A68EBBC1B99D7889 /* soul.md */; };
 		D940063243F8C733F6C6D5AD /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 682C14444F4CCC47633B6B84 /* ContentView.swift */; };
 		DA0D1EE7857C6A4D5FA13603 /* MicButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034B00B29E704C3560FA7E6C /* MicButton.swift */; };
 		E38D139F3AB9B9081874FC86 /* Cactus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9195C650B42985DD5E272B1 /* Cactus.swift */; };
@@ -62,12 +64,14 @@
 		0CE7DAEED7B03E17B061D95D /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
 		0E8F6F293E1385061DA187AE /* MeshConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshConstants.swift; sourceTree = "<group>"; };
 		1362FBB4E08B776CF2F564B3 /* Models */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Models; path = MeshNode/Models; sourceTree = SOURCE_ROOT; };
+		1961B320B9FD7920D223FDEF /* OutputPostProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputPostProcessor.swift; sourceTree = "<group>"; };
 		1B3D9D836E3DA3F39B7A419A /* MeshCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshCache.swift; sourceTree = "<group>"; };
 		1F87A10C7352EDCA5C518914 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
 		27D5FC382B4C057B023CD302 /* MeshNode.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MeshNode.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		30D29A78DC6BCA46769DFAFB /* MeshManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshManager.swift; sourceTree = "<group>"; };
 		36FA89C894AF084706D8E89B /* KeyboardDismiss.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardDismiss.swift; sourceTree = "<group>"; };
 		39DA7F94564B939431B8D70B /* LLMService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMService.swift; sourceTree = "<group>"; };
+		4D5A4669A68EBBC1B99D7889 /* soul.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = soul.md; sourceTree = "<group>"; };
 		50461E41BEA855FBB9338A51 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		60974A85F2A6A5C81E1246A1 /* MeshMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshMessage.swift; sourceTree = "<group>"; };
 		682C14444F4CCC47633B6B84 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -113,6 +117,13 @@
 			path = Audio;
 			sourceTree = "<group>";
 		};
+		0A3905193B13A73A20B86B9B /* Models */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
 		0E84053A289B841F6BF9D627 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -135,6 +146,7 @@
 			children = (
 				B9195C650B42985DD5E272B1 /* Cactus.swift */,
 				39DA7F94564B939431B8D70B /* LLMService.swift */,
+				1961B320B9FD7920D223FDEF /* OutputPostProcessor.swift */,
 				C0AE4C8DD97155C227733E5D /* STTService.swift */,
 				8D4FC9E0D656ECE801E93156 /* SummaryStore.swift */,
 			);
@@ -158,10 +170,12 @@
 				AF1540DA1A880968B8654840 /* NodeSelectionView.swift */,
 				05968F9A818F5EABA86D4001 /* RetrievalView.swift */,
 				D7D61192EE9E86FB5BB81B97 /* SettingsView.swift */,
+				4D5A4669A68EBBC1B99D7889 /* soul.md */,
 				802B5B863688AB180E97AEC7 /* Theme.swift */,
 				095F94E9C01756E6BCC7C84A /* Audio */,
 				7F63DEAD4A6885BE127076D9 /* LLM */,
 				E43011F0BF27E5B5082FEEC6 /* Mesh */,
+				0A3905193B13A73A20B86B9B /* Models */,
 			);
 			path = MeshNode;
 			sourceTree = "<group>";
@@ -251,6 +265,7 @@
 				356FC2802476F36F3D46A180 /* Models in Resources */,
 				D0CAC7E056CB2B0D91267690 /* graph.json in Resources */,
 				65CDCFED1E4D3EAB465B5A05 /* graph_undirected.json in Resources */,
+				D921A5D2DD2C1568222743CC /* soul.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -279,6 +294,7 @@
 				DA0D1EE7857C6A4D5FA13603 /* MicButton.swift in Sources */,
 				7C71B9CDE3D622FF66AE06EA /* NodeIdentity.swift in Sources */,
 				A4E70806D215F79F27420C68 /* NodeSelectionView.swift in Sources */,
+				18312D775A1E9A835F9E70FE /* OutputPostProcessor.swift in Sources */,
 				98E409FEE1D052810F15B800 /* RetrievalView.swift in Sources */,
 				58A8AB7554918DD8599F7ACF /* STTService.swift in Sources */,
 				A469B30C03553642825A47B5 /* STTStatusBar.swift in Sources */,
