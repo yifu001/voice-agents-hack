@@ -36,6 +36,7 @@ private struct MeshRootView: View {
     let tts: TTSService
     @StateObject private var mesh: MeshManager
     @StateObject private var summaries: SummaryStore
+    @StateObject private var recon: ReconViewModel
 
     init(nodeID: String, llm: LLMService, stt: STTService, tts: TTSService) {
         self.llm = llm
@@ -43,12 +44,14 @@ private struct MeshRootView: View {
         self.tts = tts
         _mesh = StateObject(wrappedValue: MeshManager(nodeID: nodeID))
         _summaries = StateObject(wrappedValue: SummaryStore(llm: llm, tts: tts))
+        _recon = StateObject(wrappedValue: ReconViewModel(llmService: llm, sttService: stt))
     }
 
     var body: some View {
         ContentView()
             .environmentObject(mesh)
             .environmentObject(summaries)
+            .environmentObject(recon)
             .onAppear {
                 mesh.start()
                 llm.load()

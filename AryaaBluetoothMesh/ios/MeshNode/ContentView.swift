@@ -14,6 +14,7 @@ struct ContentView: View {
     @EnvironmentObject var summaries: SummaryStore
     @EnvironmentObject var llm: LLMService
     @EnvironmentObject var tts: TTSService
+    @EnvironmentObject var recon: ReconViewModel
 
     @State private var spokenIDs: Set<String> = []
 
@@ -29,6 +30,8 @@ struct ContentView: View {
                 .tabItem { Label("Map", systemImage: "map") }
             RetrievalView()
                 .tabItem { Label("Retrieval", systemImage: "sparkles.rectangle.stack") }
+            ReconView(viewModel: recon)
+                .tabItem { Label("Recon", systemImage: "viewfinder") }
         }
         .hideKeyboardOnTap()
         .onChange(of: mesh.messages.count) { _, _ in

@@ -12,6 +12,32 @@ final class LLMService: ObservableObject {
         case error(String)
     }
 
+    enum VisionBundleStatus: Equatable {
+        case ready
+        case degraded(String)
+        case unavailable(String)
+    }
+
+    enum CompletionError: LocalizedError, Equatable {
+        case modelNotReady
+        case invalidRequest
+        case loadFailed(String)
+        case timeout
+
+        var errorDescription: String? {
+            switch self {
+            case .modelNotReady:
+                return "Gemma model is not ready yet."
+            case .invalidRequest:
+                return "Failed to encode the model request."
+            case .loadFailed(let message):
+                return message
+            case .timeout:
+                return "Timed out waiting for Gemma to finish loading."
+            }
+        }
+    }
+
     @Published private(set) var state: LoadState = .notLoaded
 
     private var model: CactusModelT?
@@ -30,6 +56,62 @@ final class LLMService: ObservableObject {
     }()
 
     var isReady: Bool { state == .ready }
+
+    func waitUntilReady() async throws {
+        let deadline = Date().addingTimeInterval(120)
+        while true {
+            switch state {
+            case .ready: return
+            case .error(let msg): throw CompletionError.loadFailed(msg)
+            case .notLoaded: load()
+            case .loading: break
+            }
+            if Date() > deadline { throw CompletionError.timeout }
+            try await Task.sleep(nanoseconds: 200_000_000)
+        }
+    }
+
+    func complete(
+        messages: [[String: Any]],
+        options: [String: Any] = [:]
+    ) async throws -> String {
+        guard isReady, let model else {
+            throw CompletionError.modelNotReady
+        }
+
+        guard let messagesJSON = Self.encodeJSON(messages) else {
+            throw CompletionError.invalidRequest
+        }
+        let optionsJSON: String?
+        if options.isEmpty {
+            optionsJSON = nil
+        } else {
+            guard let encoded = Self.encodeJSON(options) else {
+                throw CompletionError.invalidRequest
+            }
+            optionsJSON = encoded
+        }
+
+        log.info("LLM complete raw request: \(messagesJSON, privacy: .public)")
+
+        return try await withCheckedThrowingContinuation { continuation in
+            inferenceQueue.async {
+                cactusReset(model)
+                do {
+                    let result = try cactusComplete(
+                        model,
+                        messagesJSON,
+                        optionsJSON,
+                        nil as String?,
+                        nil as ((String, UInt32) -> Void)?
+                    )
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
 
     func load() {
         guard case .notLoaded = state else { return }
@@ -116,13 +198,20 @@ final class LLMService: ObservableObject {
         return postProcessor.process(raw, role: role)
     }
 
+    func visionBundleStatus() -> VisionBundleStatus {
+        Self.inspectVisionBundle()
+    }
+
     deinit {
         if let model { cactusDestroy(model) }
     }
 
     private static func encodeJSON(_ object: Any) -> String? {
         guard let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
-        return String(data: data, encoding: .utf8)
+        // Aryaa's bundled Cactus parser reads image paths from the raw JSON text and
+        // does not unescape solidus sequences inside the "images" array. Normalize
+        // `\/` back to `/` so vision requests can open temp image files correctly.
+        return String(data: data, encoding: .utf8)?.replacingOccurrences(of: "\\/", with: "/")
     }
 
     private static func findModelPath() -> String? {
@@ -131,5 +220,33 @@ final class LLMService: ObservableObject {
             .appendingPathComponent("gemma-4-e2b-it")
         else { return nil }
         return FileManager.default.fileExists(atPath: url.path) ? url.path : nil
+    }
+
+    private static func inspectVisionBundle() -> VisionBundleStatus {
+        guard let modelPath = findModelPath() else {
+            return .unavailable("Gemma model not found in bundle Models/.")
+        }
+
+        let modelURL = URL(fileURLWithPath: modelPath, isDirectory: true)
+        let fileManager = FileManager.default
+        func hasArtifact(_ name: String) -> Bool {
+            fileManager.fileExists(atPath: modelURL.appendingPathComponent(name).path)
+        }
+
+        let hasVisionEncoder = hasArtifact("vision_encoder.mlpackage") || hasArtifact("vision_encoder.mlmodelc")
+        guard hasVisionEncoder else {
+            return .unavailable(
+                "Gemma vision assets are missing. Re-copy the Cactus Gemma 4 bundle before using Recon."
+            )
+        }
+
+        let hasMainModelPackage = hasArtifact("model.mlpackage") || hasArtifact("model.mlmodelc")
+        guard hasMainModelPackage else {
+            return .degraded(
+                "Gemma vision is running without the optional NPU prefill package, so scans will use a slower CPU fallback."
+            )
+        }
+
+        return .ready
     }
 }

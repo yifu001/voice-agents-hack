@@ -22,6 +22,27 @@ final class STTService: ObservableObject {
 
     var isReady: Bool { state == .ready }
 
+    func unload() async {
+        guard let handle = model else {
+            state = .notLoaded
+            lastError = nil
+            return
+        }
+
+        log.info("Parakeet unloading to free memory")
+        model = nil
+        state = .notLoaded
+        lastError = nil
+
+        await withCheckedContinuation { continuation in
+            inferenceQueue.async {
+                cactusStop(handle)
+                cactusDestroy(handle)
+                continuation.resume()
+            }
+        }
+    }
+
     func load() {
         guard case .notLoaded = state else { return }
         state = .loading
@@ -62,16 +83,7 @@ final class STTService: ObservableObject {
         lastError = nil
         defer { isTranscribing = false }
 
-        let result: Result<String, Error> = await withCheckedContinuation { cont in
-            inferenceQueue.async {
-                do {
-                    let raw = try cactusTranscribe(model, audioPath, nil, nil, nil, nil)
-                    cont.resume(returning: .success(raw))
-                } catch {
-                    cont.resume(returning: .failure(error))
-                }
-            }
-        }
+        let result = await transcribeRaw(audioPath: audioPath, model: model, optionsJSON: nil)
 
         switch result {
         case .failure(let err):
@@ -82,7 +94,30 @@ final class STTService: ObservableObject {
         case .success(let raw):
             log.info("Transcribe raw: \(raw, privacy: .public)")
             let text = Self.extractText(from: raw)
-            return text.isEmpty ? nil : text
+            if !text.isEmpty {
+                return text
+            }
+
+            // Some recordings get filtered out as "all silence" by the default
+            // Parakeet CTC VAD pass. Retry once without VAD before giving up.
+            let fallbackOptions = #"{"use_vad":false}"#
+            let fallbackResult = await transcribeRaw(
+                audioPath: audioPath,
+                model: model,
+                optionsJSON: fallbackOptions
+            )
+
+            switch fallbackResult {
+            case .failure(let err):
+                let msg = "transcribe fallback failed: \(err.localizedDescription)"
+                log.error("\(msg, privacy: .public)")
+                lastError = msg
+                return nil
+            case .success(let fallbackRaw):
+                log.info("Transcribe raw (use_vad=false): \(fallbackRaw, privacy: .public)")
+                let fallbackText = Self.extractText(from: fallbackRaw)
+                return fallbackText.isEmpty ? nil : fallbackText
+            }
         }
     }
 
@@ -105,6 +140,23 @@ final class STTService: ObservableObject {
             return ""
         }
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func transcribeRaw(
+        audioPath: String,
+        model: CactusModelT,
+        optionsJSON: String?
+    ) async -> Result<String, Error> {
+        await withCheckedContinuation { cont in
+            inferenceQueue.async {
+                do {
+                    let raw = try cactusTranscribe(model, audioPath, nil, optionsJSON, nil, nil)
+                    cont.resume(returning: .success(raw))
+                } catch {
+                    cont.resume(returning: .failure(error))
+                }
+            }
+        }
     }
 
     private static func resolveModelPath() throws -> String {

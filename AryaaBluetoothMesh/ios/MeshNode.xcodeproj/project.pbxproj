@@ -26,6 +26,15 @@
 		7C71B9CDE3D622FF66AE06EA /* NodeIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B77A39D130F38F614BD7B03 /* NodeIdentity.swift */; };
 		896D4F4398F31BF2F8A8DC1D /* MeshMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60974A85F2A6A5C81E1246A1 /* MeshMessage.swift */; };
 		8C013A211516C785934CA773 /* TTSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81965F0FC5485CBF410C4DB4 /* TTSService.swift */; };
+		A1B2C3D4E5F6000000000001 /* BattlefieldVisionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1B2C3D4E5F6000000000001 /* BattlefieldVisionService.swift */; };
+		A1B2C3D4E5F6000000000002 /* CameraCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1B2C3D4E5F6000000000002 /* CameraCaptureService.swift */; };
+		A1B2C3D4E5F6000000000003 /* CameraPreviewRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1B2C3D4E5F6000000000003 /* CameraPreviewRepresentable.swift */; };
+		A1B2C3D4E5F6000000000004 /* HeadingProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1B2C3D4E5F6000000000004 /* HeadingProvider.swift */; };
+		A1B2C3D4E5F6000000000005 /* RangeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1B2C3D4E5F6000000000005 /* RangeProvider.swift */; };
+		A1B2C3D4E5F6000000000006 /* ReconView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1B2C3D4E5F6000000000006 /* ReconView.swift */; };
+		A1B2C3D4E5F6000000000007 /* ReconViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1B2C3D4E5F6000000000007 /* ReconViewModel.swift */; };
+		A1B2C3D4E5F6000000000008 /* TargetFusion.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1B2C3D4E5F6000000000008 /* TargetFusion.swift */; };
+		A1B2C3D4E5F6000000000009 /* TargetSighting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1B2C3D4E5F6000000000009 /* TargetSighting.swift */; };
 		98E409FEE1D052810F15B800 /* RetrievalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05968F9A818F5EABA86D4001 /* RetrievalView.swift */; };
 		A469B30C03553642825A47B5 /* STTStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A2E0FE7145FFACDEB3232A /* STTStatusBar.swift */; };
 		A4E70806D215F79F27420C68 /* NodeSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1540DA1A880968B8654840 /* NodeSelectionView.swift */; };
@@ -85,6 +94,15 @@
 		A1A2E0FE7145FFACDEB3232A /* STTStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = STTStatusBar.swift; sourceTree = "<group>"; };
 		AA0350DACFB7EF35C5C6E781 /* MeshPeripheral.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshPeripheral.swift; sourceTree = "<group>"; };
 		AF1540DA1A880968B8654840 /* NodeSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeSelectionView.swift; sourceTree = "<group>"; };
+		B1B2C3D4E5F6000000000001 /* BattlefieldVisionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BattlefieldVisionService.swift; sourceTree = "<group>"; };
+		B1B2C3D4E5F6000000000002 /* CameraCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCaptureService.swift; sourceTree = "<group>"; };
+		B1B2C3D4E5F6000000000003 /* CameraPreviewRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewRepresentable.swift; sourceTree = "<group>"; };
+		B1B2C3D4E5F6000000000004 /* HeadingProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadingProvider.swift; sourceTree = "<group>"; };
+		B1B2C3D4E5F6000000000005 /* RangeProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RangeProvider.swift; sourceTree = "<group>"; };
+		B1B2C3D4E5F6000000000006 /* ReconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconView.swift; sourceTree = "<group>"; };
+		B1B2C3D4E5F6000000000007 /* ReconViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconViewModel.swift; sourceTree = "<group>"; };
+		B1B2C3D4E5F6000000000008 /* TargetFusion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TargetFusion.swift; sourceTree = "<group>"; };
+		B1B2C3D4E5F6000000000009 /* TargetSighting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TargetSighting.swift; sourceTree = "<group>"; };
 		B756C15CD7B4C16BA72B3ADB /* cactus-ios.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = "cactus-ios.xcframework"; path = "Vendor/cactus-ios.xcframework"; sourceTree = "<group>"; };
 		B9195C650B42985DD5E272B1 /* Cactus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Cactus.swift; sourceTree = "<group>"; };
 		C0AE4C8DD97155C227733E5D /* STTService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = STTService.swift; sourceTree = "<group>"; };
@@ -168,6 +186,7 @@
 				1362FBB4E08B776CF2F564B3 /* Models */,
 				6B77A39D130F38F614BD7B03 /* NodeIdentity.swift */,
 				AF1540DA1A880968B8654840 /* NodeSelectionView.swift */,
+				C1B2C3D4E5F6000000000001 /* Recon */,
 				05968F9A818F5EABA86D4001 /* RetrievalView.swift */,
 				D7D61192EE9E86FB5BB81B97 /* SettingsView.swift */,
 				4D5A4669A68EBBC1B99D7889 /* soul.md */,
@@ -186,6 +205,22 @@
 				27D5FC382B4C057B023CD302 /* MeshNode.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		C1B2C3D4E5F6000000000001 /* Recon */ = {
+			isa = PBXGroup;
+			children = (
+				B1B2C3D4E5F6000000000001 /* BattlefieldVisionService.swift */,
+				B1B2C3D4E5F6000000000002 /* CameraCaptureService.swift */,
+				B1B2C3D4E5F6000000000003 /* CameraPreviewRepresentable.swift */,
+				B1B2C3D4E5F6000000000004 /* HeadingProvider.swift */,
+				B1B2C3D4E5F6000000000005 /* RangeProvider.swift */,
+				B1B2C3D4E5F6000000000006 /* ReconView.swift */,
+				B1B2C3D4E5F6000000000007 /* ReconViewModel.swift */,
+				B1B2C3D4E5F6000000000008 /* TargetFusion.swift */,
+				B1B2C3D4E5F6000000000009 /* TargetSighting.swift */,
+			);
+			path = Recon;
 			sourceTree = "<group>";
 		};
 		E43011F0BF27E5B5082FEEC6 /* Mesh */ = {
@@ -277,9 +312,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				1C97881D991F23C6CF69F9AF /* AudioRecorder.swift in Sources */,
+				A1B2C3D4E5F6000000000001 /* BattlefieldVisionService.swift in Sources */,
+				A1B2C3D4E5F6000000000002 /* CameraCaptureService.swift in Sources */,
+				A1B2C3D4E5F6000000000003 /* CameraPreviewRepresentable.swift in Sources */,
 				E38D139F3AB9B9081874FC86 /* Cactus.swift in Sources */,
 				D940063243F8C733F6C6D5AD /* ContentView.swift in Sources */,
 				60AEEBA2BFA51C2856F47245 /* GraphView.swift in Sources */,
+				A1B2C3D4E5F6000000000004 /* HeadingProvider.swift in Sources */,
 				56D70F34F6E09BBC9D62DDDD /* KeyboardDismiss.swift in Sources */,
 				C606BDC3EFEFB96B51CB9D35 /* LLMService.swift in Sources */,
 				5FADC6A572E79412EE5AF11C /* LocationManager.swift in Sources */,
@@ -295,6 +334,9 @@
 				7C71B9CDE3D622FF66AE06EA /* NodeIdentity.swift in Sources */,
 				A4E70806D215F79F27420C68 /* NodeSelectionView.swift in Sources */,
 				18312D775A1E9A835F9E70FE /* OutputPostProcessor.swift in Sources */,
+				A1B2C3D4E5F6000000000005 /* RangeProvider.swift in Sources */,
+				A1B2C3D4E5F6000000000006 /* ReconView.swift in Sources */,
+				A1B2C3D4E5F6000000000007 /* ReconViewModel.swift in Sources */,
 				98E409FEE1D052810F15B800 /* RetrievalView.swift in Sources */,
 				58A8AB7554918DD8599F7ACF /* STTService.swift in Sources */,
 				A469B30C03553642825A47B5 /* STTStatusBar.swift in Sources */,
@@ -303,6 +345,8 @@
 				8C013A211516C785934CA773 /* TTSService.swift in Sources */,
 				5E15D9690B601E6015E16831 /* Theme.swift in Sources */,
 				C817E5EA070F1D2F66250266 /* WaveformView.swift in Sources */,
+				A1B2C3D4E5F6000000000008 /* TargetFusion.swift in Sources */,
+				A1B2C3D4E5F6000000000009 /* TargetSighting.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -379,6 +423,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9L92JZM53P;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -406,6 +451,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9L92JZM53P;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
