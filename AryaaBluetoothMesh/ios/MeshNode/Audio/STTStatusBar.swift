@@ -1,20 +1,20 @@
 import SwiftUI
 
 struct STTStatusBar: View {
-    @EnvironmentObject var stt: STTService
+    @EnvironmentObject var llm: LLMService
     @EnvironmentObject var audio: AudioRecorder
 
     var body: some View {
         Group {
             if audio.isRecording {
                 recordingRow
-            } else if stt.isTranscribing {
+            } else if llm.isTranscribing {
                 simpleRow(text: "Transcribing…", tint: .secondary, showProgress: true)
-            } else if case .loading = stt.state {
-                simpleRow(text: "Loading voice model…", tint: .secondary, showProgress: true)
-            } else if case .error(let msg) = stt.state {
+            } else if case .loading = llm.state {
+                simpleRow(text: "Loading model…", tint: .secondary, showProgress: true)
+            } else if case .error(let msg) = llm.state {
                 simpleRow(text: msg, tint: .orange, icon: "exclamationmark.triangle.fill")
-            } else if let err = audio.lastError ?? stt.lastError {
+            } else if let err = audio.lastError ?? llm.lastTranscribeError {
                 simpleRow(text: err, tint: .orange, icon: "exclamationmark.triangle.fill")
             } else {
                 EmptyView()

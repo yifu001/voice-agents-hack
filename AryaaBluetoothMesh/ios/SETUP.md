@@ -52,14 +52,13 @@ cactus auth
 # paste your token when prompted
 ```
 
-### 5. Download the two models
+### 5. Download Gemma 4
 
 ```bash
 cactus download google/gemma-4-e2b-it           # ~5 GB download, ~6.3 GB extracted
-cactus download nvidia/parakeet-ctc-0.6b        # ~700 MB
 ```
 
-The weights land under `cactus/weights/`.
+The weights land under `cactus/weights/`. Gemma 4 ships with a bundled Conformer audio tower, so we use the same model for chat, summarisation, and voice transcription — no separate STT model needed.
 
 ### 6. Wire everything into the Xcode project
 
@@ -75,7 +74,6 @@ cp apple/Cactus.swift ../MeshNode/ios/MeshNode/LLM/
 
 # Model weights
 cp -R weights/gemma-4-e2b-it ../MeshNode/ios/MeshNode/Models/
-cp -R weights/parakeet-ctc-0.6b ../MeshNode/ios/MeshNode/Models/
 ```
 
 One more fix-up — the xcframework built by Cactus ships without a `Modules/module.modulemap`, which Swift needs to import it. Add it to both slices:

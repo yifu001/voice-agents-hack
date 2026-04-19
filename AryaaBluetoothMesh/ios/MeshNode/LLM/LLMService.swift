@@ -39,6 +39,8 @@ final class LLMService: ObservableObject {
     }
 
     @Published private(set) var state: LoadState = .notLoaded
+    @Published private(set) var isTranscribing: Bool = false
+    @Published private(set) var lastTranscribeError: String?
 
     private var model: CactusModelT?
     private let loadQueue = DispatchQueue(label: "cactus.load", qos: .userInitiated)
@@ -49,6 +51,13 @@ final class LLMService: ObservableObject {
     /// stabilize after stop/reset. Prevents failures during message bursts.
     private static let inferenceGapMs: UInt64 = 200
     private var lastInferenceEnd = DispatchTime.now()
+
+    /// Upper bound on audio length per transcribe() call. Cactus's audio
+    /// preprocessor emits up to `audio_soft_tokens` (188 per config.txt:67)
+    /// tokens that get attended through the 512-token KV buffer; longer audio
+    /// plus the prompt/output budget blows up RAM and triggers std::bad_alloc
+    /// mid-decode. Clip instead of crashing.
+    private static let maxTranscribeSeconds = 8
 
     /// The TacNet soul persona loaded from the bundled soul.md resource.
     static let soulPrompt: String = {
@@ -88,14 +97,9 @@ final class LLMService: ObservableObject {
         guard let messagesJSON = Self.encodeJSON(messages) else {
             throw CompletionError.invalidRequest
         }
-        let optionsJSON: String?
-        if options.isEmpty {
-            optionsJSON = nil
-        } else {
-            guard let encoded = Self.encodeJSON(options) else {
-                throw CompletionError.invalidRequest
-            }
-            optionsJSON = encoded
+        let mergedOptions = Self.withCloudDefaults(options)
+        guard let optionsJSON = Self.encodeJSON(mergedOptions) else {
+            throw CompletionError.invalidRequest
         }
         let toolsJSON: String?
         if let tools {
@@ -109,7 +113,7 @@ final class LLMService: ObservableObject {
 
         let hasImages = messagesJSON.contains("\"images\"")
         let hasTools = toolsJSON != nil
-        log.info("LLM complete (hasImages=\(hasImages, privacy: .public), hasTools=\(hasTools, privacy: .public), options=\(optionsJSON ?? "nil", privacy: .public))")
+        log.info("LLM complete (hasImages=\(hasImages, privacy: .public), hasTools=\(hasTools, privacy: .public), options=\(optionsJSON, privacy: .public))")
         log.info("LLM request body: \(messagesJSON.prefix(400), privacy: .public)")
 
         do {
@@ -199,10 +203,10 @@ final class LLMService: ObservableObject {
                 continuation.finish()
                 return
             }
-            let optionsJSON = Self.encodeJSON([
+            let optionsJSON = Self.encodeJSON(Self.withCloudDefaults([
                 "max_tokens": maxTokens,
                 "temperature": temperature,
-            ] as [String: Any])
+            ]))
 
             log.info("LLM complete (maxTokens=\(maxTokens, privacy: .public), temp=\(temperature, privacy: .public)) prompt: \(messagesJSON, privacy: .public)")
 
@@ -232,13 +236,140 @@ final class LLMService: ObservableObject {
         }
     }
 
+    /// On-device speech-to-text via the dedicated `cactus_transcribe` FFI, which
+    /// has a `is_gemma4` branch (cactus_transcribe.cpp:169-239) that builds the
+    /// correct `<|turn>user\n…<|audio>…<audio|><turn|>\n<|turn>model\n` template
+    /// and runs `decode_with_audio` in a tight audio-only loop.
+    ///
+    /// We previously routed through `cactusComplete` with PCM attached — that
+    /// dropped into Gemma's general chat path and the model kept *answering*
+    /// the spoken utterance (in English, Arabic, whatever) instead of
+    /// transcribing it. The dedicated transcribe path is what ASR was built for.
+    func transcribe(audioPath: String) async -> String? {
+        guard isReady, let model else { return nil }
+
+        // AudioRecorder writes a 16 kHz mono int16 WAV. Strip the 44-byte RIFF
+        // header to get raw PCM bytes (the Cactus engine expects raw PCM, not WAV).
+        guard let wavData = try? Data(contentsOf: URL(fileURLWithPath: audioPath)),
+              wavData.count > 44
+        else {
+            log.error("LLM transcribe: could not read WAV at \(audioPath, privacy: .public)")
+            return nil
+        }
+        var pcmData = wavData.subdata(in: 44..<wavData.count)
+
+        // Cap audio at maxTranscribeSeconds to stay under Cactus's 512-token KV
+        // buffer + the device's inference RAM budget. Longer audio → more audio
+        // soft tokens (up to 188 per config) → peak RAM spike → std::bad_alloc.
+        // 16 kHz mono int16 = 32_000 bytes/sec.
+        let maxPcmBytes = Self.maxTranscribeSeconds * 32_000
+        if pcmData.count > maxPcmBytes {
+            log.warning("LLM transcribe: clipping \(pcmData.count, privacy: .public) → \(maxPcmBytes, privacy: .public) PCM bytes (\(Self.maxTranscribeSeconds, privacy: .public)s cap)")
+            pcmData = pcmData.prefix(maxPcmBytes)
+        }
+        log.info("LLM transcribe \(audioPath, privacy: .public) (\(wavData.count) WAV bytes → \(pcmData.count) PCM bytes)")
+
+        // `prompt` is injected verbatim into the Gemma4 transcribe template as
+        // the user task text. English-only + verbatim framing is the anchor that
+        // keeps the decoder from switching languages mid-stream.
+        let transcribePrompt = "Transcribe the audio verbatim in English. Output only the spoken words."
+
+        let optionsJSON = Self.encodeJSON(Self.withCloudDefaults([
+            "temperature": 0.0,
+        ]))
+
+        isTranscribing = true
+        lastTranscribeError = nil
+        defer { isTranscribing = false }
+
+        let result: Result<String, Error> = await withCheckedContinuation { cont in
+            inferenceQueue.async { [self] in
+                // Respect the same inference gap complete() / completeStream use,
+                // so transcribe can't collide with a summary mid-burst.
+                let elapsed = DispatchTime.now().uptimeNanoseconds - self.lastInferenceEnd.uptimeNanoseconds
+                let gapNanos = Self.inferenceGapMs * 1_000_000
+                if elapsed < gapNanos {
+                    Thread.sleep(forTimeInterval: Double(gapNanos - elapsed) / 1_000_000_000)
+                }
+                // Clear any prior KV / vision state — same discipline as complete().
+                cactusStop(model)
+                cactusReset(model)
+                do {
+                    let raw = try cactusTranscribe(
+                        model,
+                        nil,                                      // audioPath (we pass PCM instead)
+                        transcribePrompt,
+                        optionsJSON,
+                        nil as ((String, UInt32) -> Void)?,       // onToken
+                        pcmData
+                    )
+                    cont.resume(returning: .success(raw))
+                } catch {
+                    cont.resume(returning: .failure(error))
+                }
+                self.lastInferenceEnd = DispatchTime.now()
+            }
+        }
+
+        switch result {
+        case .failure(let err):
+            let desc = err.localizedDescription
+            let cactusErr = cactusGetLastError()
+            let msg = "transcribe failed: \(desc) cactusErr='\(cactusErr)'"
+            log.error("\(msg, privacy: .public)")
+            lastTranscribeError = msg
+            // Same recovery discipline as complete(): a bad_alloc means Cactus
+            // allocation state is undefined. Destroy + flag notLoaded so the
+            // next call re-inits a clean handle instead of reusing a broken one.
+            if desc.contains("bad_alloc") || cactusErr.contains("bad_alloc") || desc.contains("Cannot map file") {
+                log.warning("Transcribe OOM — destroying model handle and reloading")
+                if let handle = self.model {
+                    self.model = nil
+                    self.state = .notLoaded
+                    inferenceQueue.async { cactusDestroy(handle) }
+                }
+                // Kick off reload so the mic button works on next tap without
+                // waiting for onAppear to fire again.
+                load()
+            }
+            return nil
+        case .success(let raw):
+            log.info("Transcribe raw: \(raw, privacy: .public)")
+            let text = Self.extractTranscribedText(from: raw)
+            return text.isEmpty ? nil : text
+        }
+    }
+
+    private static func extractTranscribedText(from raw: String) -> String {
+        if let data = raw.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            for key in ["response", "text", "transcription"] {
+                if let s = json[key] as? String, !s.isEmpty {
+                    return s.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+            if let segments = json["segments"] as? [[String: Any]] {
+                let joined = segments.compactMap { $0["text"] as? String }.joined(separator: " ")
+                return joined.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return ""
+        }
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Condensed soul for summarization (~400 tokens vs ~2000 for full soul.md).
     /// Keeps the identity anchors and output rules that prevent chatbot fallback
     /// but drops examples, schemas, heuristics, and routing to fit within
-    /// Gemma's 2048-token KV cache alongside the input message and output.
+    /// Cactus's KV cache budget alongside the input message and output.
     ///
-    /// Token budget: soul(~400) + framing(~50) + input(~250) + output(60) = ~760.
-    /// This leaves ~1300 tokens of headroom — enough for any message length.
+    /// Cactus iOS hardcodes `DEFAULT_CONTEXT_SIZE = 512` in cactus_init.cpp:359,
+    /// so the full buffer is 512 tokens. Gemma 4's global layers hold the full
+    /// window; sliding layers compact to `sliding_window` (also 512) per
+    /// model_gemma4.cpp:53. A bigger context needs a Cactus FFI change + rebuild.
+    ///
+    /// Token budget: soul(~400) + framing(~50) + input(~60) + output(60) = ~570.
+    /// That is already over budget — rely on cloud handoff (auto_handoff=true)
+    /// when local prefill overflows and confidence drops.
     private static let summarySoul = """
     You are TacNet Personal AI. You are a signal relay and compactor, not a chatbot.
     You compress operator messages into terse third-person reports for earpiece TTS.
@@ -304,6 +435,21 @@ final class LLMService: ObservableObject {
               let response = json["response"] as? String
         else { return raw }
         return response
+    }
+
+    /// Merges Cactus cloud-handoff defaults into caller-supplied options.
+    /// The cloud fires only when local confidence drops below the threshold, so
+    /// steady-state cost stays on-device; cloud kicks in on hard prompts.
+    /// Caller values always win — pass "auto_handoff: false" to force local-only.
+    private static func withCloudDefaults(_ options: [String: Any]) -> [String: Any] {
+        var merged: [String: Any] = [
+            "auto_handoff": true,
+            "confidence_threshold": 0.7,
+            "cloud_timeout_ms": 3000,
+            "handoff_with_images": true,
+        ]
+        for (k, v) in options { merged[k] = v }
+        return merged
     }
 
     private static func encodeJSON(_ object: Any) -> String? {

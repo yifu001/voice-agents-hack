@@ -4,7 +4,7 @@ struct MicButton: View {
     enum Size { case compact, hero }
 
     @EnvironmentObject var audio: AudioRecorder
-    @EnvironmentObject var stt: STTService
+    @EnvironmentObject var llm: LLMService
     var size: Size = .hero
     let onTranscribed: (String) -> Void
 
@@ -29,7 +29,7 @@ struct MicButton: View {
                 .frame(width: diameter, height: diameter)
 
             Group {
-                if stt.isTranscribing {
+                if llm.isTranscribing {
                     ProgressView().tint(Color.tInk)
                 } else {
                     Image(systemName: audio.isRecording ? "mic.fill" : "mic")
@@ -57,7 +57,7 @@ struct MicButton: View {
     }
 
     private var enabled: Bool {
-        stt.isReady && !stt.isTranscribing
+        llm.isReady && !llm.isTranscribing
     }
 
     private var diameter: CGFloat {
@@ -73,12 +73,12 @@ struct MicButton: View {
     }
 
     private var background: Color {
-        if stt.isTranscribing { return Color.tODDim }
+        if llm.isTranscribing { return Color.tODDim }
         return audio.isRecording ? Color.tAlert : Color.tOD
     }
 
     private var strokeColor: Color {
-        if stt.isTranscribing { return Color.tKhaki }
+        if llm.isTranscribing { return Color.tKhaki }
         return audio.isRecording ? Color.tAlert.opacity(0.8) : Color.tOD.opacity(0.6)
     }
 
@@ -93,7 +93,7 @@ struct MicButton: View {
     private func end() async {
         guard let url = audio.stop() else { return }
         defer { try? FileManager.default.removeItem(at: url) }
-        guard let text = await stt.transcribe(audioPath: url.path),
+        guard let text = await llm.transcribe(audioPath: url.path),
               !text.isEmpty
         else { return }
         onTranscribed(text)

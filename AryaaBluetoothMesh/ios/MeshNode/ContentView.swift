@@ -27,12 +27,12 @@ struct ContentView: View {
                 ChatTab(overrideTitle: "ALL", messages: allMessages)
                     .tabItem { Label("All", systemImage: "bubble.left.and.bubble.right") }
             }
-            MapTab()
-                .tabItem { Label("Map", systemImage: "map") }
             RetrievalView()
                 .tabItem { Label("Retrieval", systemImage: "sparkles.rectangle.stack") }
             ReconView(viewModel: recon)
                 .tabItem { Label("Recon", systemImage: "viewfinder") }
+            MapTab()
+                .tabItem { Label("Map", systemImage: "map") }
         }
         .hideKeyboardOnTap()
         .onChange(of: mesh.messages.count) { _, _ in
