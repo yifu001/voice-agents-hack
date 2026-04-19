@@ -1,7 +1,6 @@
 import { BracketedButton } from './primitives/BracketedButton';
 import { PulsingDot } from './primitives/PulsingDot';
 import { GridBackground } from './primitives/GridBackground';
-import { DeviceMock } from './DeviceMock';
 import { hero } from '@/content/copy';
 
 /**
@@ -141,7 +140,7 @@ export function Hero() {
             </div>
           </div>
 
-          {/* Visual column */}
+          {/* Visual column — cinematic video */}
           <div className="relative flex items-center justify-center">
             {/* Warm phosphor halo (amber) + cool rim (cyan) — duotone */}
             <div
@@ -160,7 +159,40 @@ export function Hero() {
                   'radial-gradient(circle at 30% 75%, rgba(123, 182, 217, 0.05), transparent 50%)',
               }}
             />
-            <DeviceMock />
+            <div
+              className="relative w-full overflow-hidden rounded-sm border"
+              style={{
+                borderColor: 'var(--color-border)',
+                boxShadow:
+                  '0 0 60px rgba(232, 197, 71, 0.06), 0 0 120px rgba(123, 182, 217, 0.04)',
+              }}
+            >
+              {/* Scanline overlay on video */}
+              <div
+                aria-hidden
+                className="bg-scanlines pointer-events-none absolute inset-0 z-10"
+              />
+              <video
+                className="block w-full"
+                autoPlay
+                loop
+                muted
+                playsInline
+                poster=""
+                style={{ opacity: 0.85 }}
+              >
+                <source src="/tecnet.mp4" type="video/mp4" />
+              </video>
+              {/* Bottom fade into background */}
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-x-0 bottom-0 h-16"
+                style={{
+                  background:
+                    'linear-gradient(to top, var(--color-bg), transparent)',
+                }}
+              />
+            </div>
           </div>
         </div>
       </div>
