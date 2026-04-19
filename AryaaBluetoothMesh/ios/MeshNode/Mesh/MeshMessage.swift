@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 
 struct MeshMessage: Codable, Identifiable, Equatable {
     let senderId: String
@@ -6,8 +7,20 @@ struct MeshMessage: Codable, Identifiable, Equatable {
     var ttl: UInt8
     let timestamp: Int64
     let payload: String
+    let latitude: Double?
+    let longitude: Double?
+    let locationAccuracy: Double?
 
     var id: String { "\(senderId):\(msgId)" }
+
+    var hasLocation: Bool {
+        latitude != nil && longitude != nil
+    }
+
+    var coordinate: CLLocationCoordinate2D? {
+        guard let lat = latitude, let lon = longitude else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
 
     static func nowMs() -> Int64 {
         Int64(Date().timeIntervalSince1970 * 1000)

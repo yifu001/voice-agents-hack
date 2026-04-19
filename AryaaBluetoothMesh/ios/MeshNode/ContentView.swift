@@ -13,6 +13,8 @@ struct ContentView: View {
                 .tabItem { Label("All", systemImage: "bubble.left.and.bubble.right") }
             ChatTab(title: "Node", messages: nodeMessages)
                 .tabItem { Label("Node", systemImage: "person.crop.circle") }
+            MapTab()
+                .tabItem { Label("Map", systemImage: "map") }
             RetrievalView()
                 .tabItem { Label("Retrieval", systemImage: "sparkles.rectangle.stack") }
         }
