@@ -13,6 +13,7 @@ struct ContentView: View {
     @EnvironmentObject var identity: NodeIdentity
     @EnvironmentObject var summaries: SummaryStore
     @EnvironmentObject var llm: LLMService
+    @EnvironmentObject var tts: TTSService
 
     var body: some View {
         TabView {
@@ -22,6 +23,8 @@ struct ContentView: View {
                 ChatTab(overrideTitle: "ALL", messages: allMessages)
                     .tabItem { Label("All", systemImage: "bubble.left.and.bubble.right") }
             }
+            MapTab()
+                .tabItem { Label("Map", systemImage: "map") }
             RetrievalView()
                 .tabItem { Label("Retrieval", systemImage: "sparkles.rectangle.stack") }
         }
@@ -110,7 +113,8 @@ private struct ChatTab: View {
                 }
             }
             .sheet(isPresented: $showSettings) {
-                SettingsView().environmentObject(identity)
+                SettingsView()
+                    .environmentObject(identity)
             }
         }
     }

@@ -1,21 +1,27 @@
 interface PulsingDotProps {
   label?: string;
-  tone?: 'accent' | 'amber' | 'red';
+  tone?: 'amber' | 'cyan' | 'red';
   size?: 'sm' | 'md';
 }
 
-/** Tiny pulsing dot + optional uppercase mono label. */
+/**
+ * Tiny pulsing dot + uppercase mono label.
+ * Refinement: tone palette is now amber|cyan|red (was accent|amber|red,
+ * where 'accent' meant lime). Label color is text-muted so only the
+ * dot itself carries the signal color — much quieter than a colored
+ * phrase, more in line with real instrument readouts.
+ */
 export function PulsingDot({
   label = 'Operational',
-  tone = 'accent',
+  tone = 'amber',
   size = 'md',
 }: PulsingDotProps) {
   const color =
-    tone === 'accent'
-      ? 'var(--color-accent)'
-      : tone === 'amber'
-        ? 'var(--color-signal-amber)'
-        : 'var(--color-signal-red)';
+    tone === 'cyan'
+      ? 'var(--color-signal-cyan)'
+      : tone === 'red'
+        ? 'var(--color-signal-red)'
+        : 'var(--color-signal-amber)';
 
   const dim = size === 'sm' ? 'h-1.5 w-1.5' : 'h-2 w-2';
 
@@ -24,12 +30,15 @@ export function PulsingDot({
       <span
         aria-hidden
         className={`${dim} pulse-op rounded-full`}
-        style={{ background: color }}
+        style={{
+          background: color,
+          boxShadow: `0 0 0 2px rgba(0,0,0,0.0), 0 0 8px ${color}40`,
+        }}
       />
       <span
-        className="text-[11px] uppercase tracking-[0.14em]"
+        className="text-[10.5px] uppercase tracking-[0.16em]"
         style={{
-          color,
+          color: 'var(--color-text-muted)',
           fontFamily: 'var(--font-mono)',
         }}
       >

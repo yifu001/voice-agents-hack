@@ -6,6 +6,7 @@ export function Problem() {
   return (
     <SectionFrame
       id="problem"
+      code="S-03"
       eyebrow={problem.eyebrow}
       title={problem.title}
       intro={

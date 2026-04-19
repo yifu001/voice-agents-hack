@@ -31,12 +31,12 @@ export function DeviceMock({ cycleMs = 3200, auto = true }: DeviceMockProps) {
         className="relative overflow-hidden"
         style={{
           aspectRatio: '280 / 580',
-          background: '#050705',
+          background: '#050507',
           border: '1px solid var(--color-border-hot)',
           borderRadius: 34,
           padding: 8,
           boxShadow:
-            '0 40px 80px -20px rgba(0,0,0,0.6), 0 0 0 1px rgba(232,236,233,0.04)',
+            '0 40px 80px -20px rgba(0,0,0,0.6), 0 0 0 1px rgba(236,234,228,0.04)',
         }}
       >
         {/* Notch */}
@@ -46,7 +46,7 @@ export function DeviceMock({ cycleMs = 3200, auto = true }: DeviceMockProps) {
           style={{
             width: 90,
             height: 18,
-            background: '#050705',
+            background: '#050507',
             borderRadius: 12,
           }}
         />

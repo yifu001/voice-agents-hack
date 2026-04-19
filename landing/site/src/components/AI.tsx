@@ -7,6 +7,7 @@ export function AI() {
   return (
     <SectionFrame
       id="ai"
+      code="S-06"
       eyebrow={ai.eyebrow}
       title={ai.title}
       intro={<p>{ai.intro}</p>}

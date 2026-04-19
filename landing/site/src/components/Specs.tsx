@@ -5,6 +5,7 @@ export function Specs() {
   return (
     <SectionFrame
       id="specs"
+      code="S-08"
       eyebrow={specs.eyebrow}
       title={specs.title}
     >
@@ -22,14 +23,21 @@ export function Specs() {
             className="p-6 sm:p-8"
             style={{ background: 'var(--color-surface)' }}
           >
+            {/* Column header — restrained to muted text + thin amber rule
+                so the spec table reads as a row of equals, not a wall of
+                yellow titles. */}
             <div
-              className="mb-5 flex items-center gap-3 text-[11px] uppercase tracking-[0.14em]"
+              className="mb-5 flex items-center gap-3 text-[11px] uppercase tracking-[0.18em]"
               style={{
-                color: 'var(--color-accent)',
+                color: 'var(--color-text-muted)',
                 fontFamily: 'var(--font-mono)',
               }}
             >
-              <span>—</span>
+              <span
+                aria-hidden
+                className="inline-block h-px w-3"
+                style={{ background: 'var(--color-signal-amber)' }}
+              />
               <span>{col.title}</span>
             </div>
             <dl className="space-y-2.5">

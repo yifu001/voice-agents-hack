@@ -21,7 +21,7 @@ export function CodeWindow({
     <div
       className="relative border"
       style={{
-        background: '#0E110E',
+        background: '#0E0E10',
         borderColor: 'var(--color-border)',
         borderRadius: 'var(--radius-panel)',
       }}
@@ -32,7 +32,7 @@ export function CodeWindow({
         className="pointer-events-none absolute left-0 right-0 top-0 h-px"
         style={{
           background:
-            'linear-gradient(to right, transparent, rgba(184,255,44,0.25), transparent)',
+            'linear-gradient(to right, transparent, rgba(232,197,71,0.22), transparent)',
         }}
       />
       {/* Title bar */}
@@ -46,15 +46,15 @@ export function CodeWindow({
         <div className="flex gap-1.5">
           <span
             className="h-2.5 w-2.5 rounded-full"
-            style={{ background: '#2B3329' }}
+            style={{ background: '#34343A' }}
           />
           <span
             className="h-2.5 w-2.5 rounded-full"
-            style={{ background: '#2B3329' }}
+            style={{ background: '#34343A' }}
           />
           <span
             className="h-2.5 w-2.5 rounded-full"
-            style={{ background: '#2B3329' }}
+            style={{ background: '#34343A' }}
           />
         </div>
         {filename && (
@@ -102,8 +102,8 @@ export function CodeWindow({
         aria-hidden
         className="absolute inset-0 translate-x-3 translate-y-2 border"
         style={{
-          background: '#080B09',
-          borderColor: '#141914',
+          background: '#08080A',
+          borderColor: '#16161A',
           borderRadius: 'var(--radius-panel)',
         }}
       />
@@ -112,8 +112,8 @@ export function CodeWindow({
         aria-hidden
         className="absolute inset-0 translate-x-[6px] translate-y-1 border"
         style={{
-          background: '#0B0E0B',
-          borderColor: '#1A1F1A',
+          background: '#0B0B0D',
+          borderColor: '#1C1C20',
           borderRadius: 'var(--radius-panel)',
         }}
       />
@@ -144,14 +144,17 @@ export function Token({
   children: ReactNode;
 }) {
   const colors: Record<string, string> = {
+    // Syntax theme — kept OneDark-inspired colours for readability,
+    // but `tag` is migrated lime → amber, and dim greys are aligned
+    // with the new neutral text scale.
     keyword: '#C678DD',
     string: '#98C379',
     number: '#D19A66',
-    comment: '#5A615C',
-    fn: '#61AFEF',
-    type: '#E5C07B',
-    tag: '#B8FF2C',
-    punct: '#8A918C',
+    comment: '#5A5A57',
+    fn: '#7BB6D9',
+    type: '#E8C547',
+    tag: '#E8C547',
+    punct: '#8A8A85',
   };
   return <span style={{ color: colors[kind] }}>{children}</span>;
 }

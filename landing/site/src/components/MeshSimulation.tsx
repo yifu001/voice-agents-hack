@@ -235,8 +235,8 @@ export function MeshSimulation() {
               aria-pressed={layerMode === m}
               className="px-3 py-2 text-[11px] uppercase tracking-[0.12em] transition-colors"
               style={{
-                background: layerMode === m ? 'var(--color-accent)' : 'transparent',
-                color: layerMode === m ? 'var(--color-bg)' : 'var(--color-text-muted)',
+                background: layerMode === m ? 'var(--color-elevated)' : 'transparent',
+                color: layerMode === m ? 'var(--color-text)' : 'var(--color-text-muted)',
                 fontFamily: 'var(--font-mono)',
               }}
             >
@@ -274,7 +274,7 @@ export function MeshSimulation() {
             {/* subtle grid */}
             <defs>
               <pattern id="mesh-grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(232,236,233,0.04)" strokeWidth="1" />
+                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(236,234,228,0.04)" strokeWidth="1" />
               </pattern>
             </defs>
             <rect x="0" y="0" width={VIEW_W} height={VIEW_H} fill="url(#mesh-grid)" />
@@ -300,10 +300,11 @@ export function MeshSimulation() {
                 const a = nodeById(e.from);
                 const b = nodeById(e.to);
                 if (!a || !b) return null;
+                // Duotone: cyan for broadcast (data flow), amber for compaction (process).
                 const stroke =
                   e.kind === 'broadcast'
-                    ? 'rgba(184,255,44,0.55)'
-                    : 'rgba(255,176,32,0.7)';
+                    ? 'rgba(123,182,217,0.55)'
+                    : 'rgba(232,197,71,0.7)';
                 const t = reduced ? 1 : e.t;
                 const px = a.x + (b.x - a.x) * t;
                 const py = a.y + (b.y - a.y) * t;
@@ -315,7 +316,7 @@ export function MeshSimulation() {
                     />
                     <circle
                       cx={px} cy={py} r="5"
-                      fill={e.kind === 'broadcast' ? 'var(--color-accent)' : 'var(--color-signal-amber)'}
+                      fill={e.kind === 'broadcast' ? 'var(--color-signal-cyan)' : 'var(--color-signal-amber)'}
                     />
                   </g>
                 );
@@ -389,7 +390,7 @@ export function MeshSimulation() {
                   style={{
                     color: e.kind === 'compaction'
                       ? 'var(--color-signal-amber)'
-                      : 'var(--color-accent)',
+                      : 'var(--color-signal-cyan)',
                     fontFamily: 'var(--font-mono)',
                     fontSize: 10,
                     letterSpacing: '0.1em',
@@ -439,12 +440,13 @@ function NodeCell({
   pulse?: 'transmitting' | 'compacting';
   onClick: () => void;
 }) {
+  // Cyan = system identity (selected, transmitting); amber = process (compacting).
   const stroke = selected
-    ? 'var(--color-accent)'
+    ? 'var(--color-signal-cyan)'
     : pulse === 'compacting'
       ? 'var(--color-signal-amber)'
       : pulse === 'transmitting'
-        ? 'var(--color-accent)'
+        ? 'var(--color-signal-cyan)'
         : 'var(--color-border-hot)';
 
   const fill = node.role === 'commander'
@@ -538,7 +540,7 @@ function MeshInspector({
         <span
           className="text-[10px] uppercase tracking-[0.14em]"
           style={{
-            color: 'var(--color-accent)',
+            color: 'var(--color-signal-cyan)',
             fontFamily: 'var(--font-mono)',
           }}
         >

@@ -31,7 +31,7 @@ AryaaBluetoothMesh/ios/Vendor/
 TacNet/Resources/ParakeetCTC/*
 !TacNet/Resources/ParakeetCTC/.gitkeep
 
-# Python venvs / caches (if any in subfolders)
+# Python venvs / caches
 venv/
 .venv/
 __pycache__/

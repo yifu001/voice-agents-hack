@@ -1,19 +1,34 @@
 import type { Metadata } from 'next';
-import { DM_Sans, JetBrains_Mono } from 'next/font/google';
+import { Funnel_Sans, Funnel_Display, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
 
-const dmSans = DM_Sans({
+/**
+ * Type chain — chosen to escape the DM Sans / JetBrains Mono "every YC site"
+ * stack. Funnel (Pangram-Pangram, 2024 release) has a distinctive squared
+ * geometry that reads as engineered/instrumented rather than generic
+ * neo-grotesque. IBM Plex Mono brings a slabby, "engineered" feel that
+ * pairs well with Funnel and reads more like instrumentation than the
+ * generic JetBrains/Geist mono stack everyone else uses.
+ */
+const funnelSans = Funnel_Sans({
   subsets: ['latin'],
-  variable: '--font-dm-sans',
+  variable: '--font-funnel-sans',
   display: 'swap',
-  weight: ['300', '400', '500', '600', '700', '800'],
+  weight: ['300', '400', '500', '600', '700'],
 });
 
-const jetBrainsMono = JetBrains_Mono({
+const funnelDisplay = Funnel_Display({
   subsets: ['latin'],
-  variable: '--font-jetbrains-mono',
+  variable: '--font-funnel-display',
   display: 'swap',
-  weight: ['400', '500', '600'],
+  weight: ['400', '500', '600', '700', '800'],
+});
+
+const plexMono = IBM_Plex_Mono({
+  subsets: ['latin'],
+  variable: '--font-plex-mono',
+  display: 'swap',
+  weight: ['400', '600', '700'],
 });
 
 export const metadata: Metadata = {
@@ -37,7 +52,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${dmSans.variable} ${jetBrainsMono.variable}`}
+      className={`${funnelSans.variable} ${funnelDisplay.variable} ${plexMono.variable}`}
     >
       <body className="relative min-h-screen antialiased">
         {/* Grain overlay — pinned, non-interactive */}

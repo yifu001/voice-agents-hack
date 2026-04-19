@@ -31,6 +31,7 @@ targets:
         NSBluetoothAlwaysUsageDescription: "MeshNode uses Bluetooth to communicate with nearby devices in the mesh network."
         NSBluetoothPeripheralUsageDescription: "MeshNode uses Bluetooth to communicate with nearby devices in the mesh network."
         NSMicrophoneUsageDescription: "MeshNode uses the microphone to transcribe voice messages on-device."
+        NSLocationWhenInUseUsageDescription: "MeshNode uses your location to share your position with squad members on the map."
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UILaunchScreen:
