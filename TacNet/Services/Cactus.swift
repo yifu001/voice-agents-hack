@@ -719,6 +719,14 @@ public struct ModelDownloadConfiguration: Sendable {
         modelFileName: ".complete",
         requiresZipArchive: true
     )
+
+    public static let parakeet = ModelDownloadConfiguration(
+        modelURL: URL(string: "https://huggingface.co/Cactus-Compute/parakeet-ctc-1.1b/resolve/main/weights/parakeet-ctc-1.1b-apple.zip")!,
+        expectedModelSizeBytes: 1_800_000_000,
+        modelDirectoryName: "parakeet-ctc-1.1b",
+        modelFileName: ".complete",
+        requiresZipArchive: true
+    )
 }
 
 public struct ModelDownloadRequest: Sendable {
@@ -775,10 +783,16 @@ public enum URLSessionDownloadClientError: Error {
 }
 
 public final class URLSessionDownloadClient: NSObject, URLSessionDownloading, @unchecked Sendable {
-    /// Shared singleton — AppDelegate references this to reconnect background session events.
-    public static let shared = URLSessionDownloadClient()
+    /// Shared singleton for Gemma — AppDelegate references this to reconnect background session events.
+    public static let shared = URLSessionDownloadClient(sessionIdentifier: "com.tacnet.model-download")
+
+    /// Shared singleton for Parakeet STT model.
+    public static let parakeet = URLSessionDownloadClient(sessionIdentifier: "com.tacnet.parakeet-download")
 
     public static let backgroundSessionIdentifier = "com.tacnet.model-download"
+    public static let parakeetSessionIdentifier = "com.tacnet.parakeet-download"
+
+    public let sessionIdentifier: String
 
     private struct CallbackBundle {
         let progress: @Sendable (Int64, Int64) -> Void
@@ -796,11 +810,10 @@ public final class URLSessionDownloadClient: NSObject, URLSessionDownloading, @u
     // app backgrounding, and OS-initiated app termination.
     private var session: URLSession!
 
-    public override init() {
+    public init(sessionIdentifier: String) {
+        self.sessionIdentifier = sessionIdentifier
         super.init()
-        let config = URLSessionConfiguration.background(
-            withIdentifier: URLSessionDownloadClient.backgroundSessionIdentifier
-        )
+        let config = URLSessionConfiguration.background(withIdentifier: sessionIdentifier)
         config.timeoutIntervalForRequest = 300
         config.timeoutIntervalForResource = 86400
         config.waitsForConnectivity = true
@@ -953,6 +966,12 @@ public actor ModelDownloadService {
 
     public static let live = ModelDownloadService()
 
+    public static let parakeet = ModelDownloadService(
+        configuration: .parakeet,
+        downloader: URLSessionDownloadClient.parakeet,
+        persistenceKeyPrefix: "TacNet.ParakeetDownload"
+    )
+
     private let configuration: ModelDownloadConfiguration
     private let downloader: URLSessionDownloading
     private let storageChecker: StorageChecking
@@ -1012,10 +1031,13 @@ public actor ModelDownloadService {
     @discardableResult
     public func ensureModelAvailable(progressHandler: ProgressHandler? = nil) async throws -> URL {
         if synchronizeCompletionState() {
-            NSLog("[ModelDownload] Model already present at %@, skipping download", modelDirectoryURL.path)
+            NSLog("[ModelDownload] ✅ %@ already present — skipping download", configuration.modelDirectoryName)
             progressHandler?(1.0)
             return modelDirectoryURL
         }
+
+        NSLog("[ModelDownload] 🚀 Starting download of %@ from %@",
+              configuration.modelDirectoryName, configuration.modelURL.absoluteString)
 
         // Diagnostic: log what's currently in applicationSupportDirectory so we
         // can confirm whether orphaned model files are present before migrating.
@@ -1047,7 +1069,12 @@ public actor ModelDownloadService {
 
         try fileManager.createDirectory(at: modelDirectoryURL, withIntermediateDirectories: true)
 
-        let progressReporter = ProgressReporter(progressHandler: progressHandler)
+        let modelName = configuration.modelDirectoryName
+        let loggingHandler: ProgressHandler = { pct in
+            NSLog("[ModelDownload] 📥 %@ — %.0f%%", modelName, pct * 100)
+            progressHandler?(pct)
+        }
+        let progressReporter = ProgressReporter(progressHandler: loggingHandler)
         progressReporter.report(0)
 
         var lastNonRecoverableError: ModelDownloadServiceError?
@@ -1387,8 +1414,13 @@ public actor CactusModelInitializationService {
     public typealias InitFunction = (String, String?, Bool) throws -> CactusModelT
     public typealias DestroyFunction = (CactusModelT) -> Void
 
-    /// Shared singleton — all components use one model handle, preventing double-load (~5.6 GB RAM).
+    /// Gemma 4 singleton — used for LLM completion.
     public static let shared = CactusModelInitializationService()
+
+    /// Parakeet CTC singleton — used for speech-to-text transcription.
+    public static let parakeet = CactusModelInitializationService(
+        downloadService: .parakeet
+    )
 
     private let downloadService: ModelDownloadService
     private let initFunction: InitFunction

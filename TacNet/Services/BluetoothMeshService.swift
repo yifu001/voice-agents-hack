@@ -109,26 +109,14 @@ actor CactusTranscriber: CactusTranscribing {
     private let transcribeFunction: TranscribeFunction
 
     init(
-        modelHandleProvider: any ModelHandleProviding = CactusModelInitializationService.shared,
+        modelHandleProvider: any ModelHandleProviding = CactusModelInitializationService.parakeet,
         transcribeFunction: @escaping TranscribeFunction = { model, pcmData in
             try cactusTranscribe(model, nil, nil, nil, nil, pcmData)
         }
     ) {
         self.modelHandleProvider = modelHandleProvider
         self.transcribeFunction = transcribeFunction
-        NSLog("[STT] CactusTranscriber initialized with provider: %@", String(describing: type(of: modelHandleProvider)))
-
-        // Verify Parakeet bundle resource exists at init time
-        if let parakeetPath = Bundle.main.path(forResource: "ParakeetCTC", ofType: nil) {
-            NSLog("[STT] ✅ ParakeetCTC found in bundle at: %@", parakeetPath)
-        } else {
-            NSLog("[STT] ❌ ParakeetCTC NOT found in app bundle — STT will fail. Bundle path: %@", Bundle.main.bundlePath)
-            // List top-level bundle contents for debugging
-            if let contents = try? FileManager.default.contentsOfDirectory(atPath: Bundle.main.bundlePath) {
-                let relevant = contents.filter { $0.contains("Parakeet") || $0.contains("cactus") || $0.hasSuffix(".weights") }
-                NSLog("[STT] Bundle contents (relevant): %@", relevant.isEmpty ? "(none)" : relevant.joined(separator: ", "))
-            }
-        }
+        NSLog("[STT] CactusTranscriber initialized — STT provider: Parakeet CTC 1.1B (downloaded), LLM: Gemma 4")
     }
 
     func transcribePCM16kMono(_ pcmData: Data) async throws -> String {
@@ -1215,12 +1203,15 @@ actor AudioService {
             let item = pendingClips.removeFirst()
 
             do {
+                NSLog("[STT] Transcribing clip seq=\(item.sequence) (\(item.clip.data.count) bytes, \(String(format: "%.1f", item.clip.durationSeconds))s)")
                 let transcript = try await transcriber.transcribePCM16kMono(item.clip.data)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !transcript.isEmpty else {
+                    NSLog("[STT] ⚠️ Transcription returned empty string for seq=\(item.sequence)")
                     continue
                 }
 
+                NSLog("[STT] ✅ Transcript seq=\(item.sequence): \"\(transcript)\"")
                 let result = TranscriptResult(
                     sequence: item.sequence,
                     transcript: transcript,
@@ -1231,6 +1222,7 @@ actor AudioService {
                     await transcriptConsumer.receiveTranscript(result)
                 }
             } catch {
+                NSLog("[STT] ❌ Transcription failed for seq=\(item.sequence): \(error.localizedDescription)")
                 continue
             }
         }
@@ -1485,11 +1477,15 @@ final class BluetoothMeshService {
             outboundMessage.payload.encrypted = true
         }
 
+        NSLog("[MESH] publish — type: \(outboundMessage.type.rawValue), senderRole: '\(outboundMessage.senderRole)', ttl: \(outboundMessage.ttl), encrypted: \(outboundMessage.payload.encrypted == true ? "yes" : "no")")
+
         guard outboundMessage.ttl > 0 else {
+            NSLog("[MESH] ❌ publish dropped — TTL is 0")
             return
         }
 
         guard !deduplicator.isDuplicate(messageId: outboundMessage.id) else {
+            NSLog("[MESH] ❌ publish dropped — duplicate message ID")
             return
         }
 
@@ -1587,22 +1583,31 @@ final class BluetoothMeshService {
     }
 
     private func handleIncomingData(_ data: Data, from sourcePeerID: UUID) {
+        let shortPeer = sourcePeerID.uuidString.prefix(8)
+        NSLog("[MESH] ← received \(data.count) bytes from peer \(shortPeer)")
+
         let decryptedData: Data
         do {
             decryptedData = try encryptionService.decryptTransportPayload(data)
         } catch {
+            NSLog("[MESH] ❌ decrypt failed from peer \(shortPeer): \(error.localizedDescription)")
             return
         }
 
         guard var inboundMessage = try? decoder.decode(Message.self, from: decryptedData) else {
+            NSLog("[MESH] ❌ JSON decode failed from peer \(shortPeer) (\(decryptedData.count) decrypted bytes)")
             return
         }
 
+        NSLog("[MESH] ← decoded type: \(inboundMessage.type.rawValue), senderRole: '\(inboundMessage.senderRole)', ttl: \(inboundMessage.ttl), from peer \(shortPeer)")
+
         guard inboundMessage.ttl > 0 else {
+            NSLog("[MESH] ← dropped — TTL exhausted (type: \(inboundMessage.type.rawValue))")
             return
         }
 
         guard !deduplicator.isDuplicate(messageId: inboundMessage.id) else {
+            NSLog("[MESH] ← dropped — duplicate (type: \(inboundMessage.type.rawValue))")
             return
         }
 
@@ -1610,6 +1615,7 @@ final class BluetoothMeshService {
         onMessageReceived?(inboundMessage)
 
         guard inboundMessage.ttl > 0 else {
+            NSLog("[MESH] ← not flooding — TTL now 0 after delivery (type: \(inboundMessage.type.rawValue))")
             return
         }
 
@@ -1623,10 +1629,12 @@ final class BluetoothMeshService {
         }
 
         guard !targetPeerIDs.isEmpty else {
+            NSLog("[MESH] flood — type: \(message.type.rawValue), no reachable peers — queuing in relay (queue size now: \(relayQueue.count + 1))")
             relayQueue.append(QueuedRelay(message: message, excludedPeerID: excludedPeerID))
             return
         }
 
+        NSLog("[MESH] flood — type: \(message.type.rawValue), sending to \(targetPeerIDs.count) peer(s)")
         send(message, to: targetPeerIDs)
     }
 
@@ -1651,6 +1659,7 @@ final class BluetoothMeshService {
 
     private func send(_ message: Message, to peerIDs: Set<UUID>) {
         guard let encodedMessage = try? encoder.encode(message) else {
+            NSLog("[MESH] ❌ send failed — JSON encode error for type: \(message.type.rawValue)")
             return
         }
 
@@ -1658,9 +1667,11 @@ final class BluetoothMeshService {
         do {
             outboundPayload = try encryptionService.encryptTransportPayload(encodedMessage)
         } catch {
+            NSLog("[MESH] ❌ send failed — encrypt error: \(error.localizedDescription)")
             return
         }
 
+        NSLog("[MESH] send — type: \(message.type.rawValue), payload: \(outboundPayload.count) bytes, peers: \(peerIDs.count)")
         transport.send(outboundPayload, messageType: message.type, to: peerIDs)
     }
 }
@@ -1758,6 +1769,8 @@ final class CoreBluetoothMeshTransport: NSObject, BluetoothMeshTransporting {
         for peerID in peerIDs {
             if let peripheral = connectedPeripherals[peerID],
                let characteristic = discoveredCharacteristicsByPeer[peerID]?[characteristicKind] {
+                let shortID = peerID.uuidString.prefix(8)
+                NSLog("[BLE] → writing \(data.count) bytes to peer \(shortID) via Central path (type: \(messageType.rawValue))")
                 peripheral.writeValue(data, for: characteristic, type: .withoutResponse)
                 continue
             }
@@ -1765,7 +1778,12 @@ final class CoreBluetoothMeshTransport: NSObject, BluetoothMeshTransporting {
             if let central = subscribedCentrals[peerID],
                let peripheralManager {
                 let localCharacteristic = localCharacteristic(for: characteristicKind)
-                _ = peripheralManager.updateValue(data, for: localCharacteristic, onSubscribedCentrals: [central])
+                let ok = peripheralManager.updateValue(data, for: localCharacteristic, onSubscribedCentrals: [central])
+                let shortID = peerID.uuidString.prefix(8)
+                NSLog("[BLE] → notifying \(data.count) bytes to peer \(shortID) via Peripheral path (type: \(messageType.rawValue)) — queued: \(ok ? "no" : "yes")")
+            } else {
+                let shortID = peerID.uuidString.prefix(8)
+                NSLog("[BLE] ❌ no delivery path for peer \(shortID) (type: \(messageType.rawValue)) — central connected: \(connectedPeripherals[peerID] != nil ? "yes" : "no"), subscribed: \(subscribedCentrals[peerID] != nil ? "yes" : "no")")
             }
         }
     }

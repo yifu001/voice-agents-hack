@@ -1334,33 +1334,28 @@ enum TacNetTab: String, CaseIterable, Identifiable {
     case main
     case treeView
     case dataFlow
+    case aiTest
     case settings
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .main:
-            return "Main"
-        case .treeView:
-            return "Tree View"
-        case .dataFlow:
-            return "Data Flow"
-        case .settings:
-            return "Settings"
+        case .main:       return "Main"
+        case .treeView:   return "Tree View"
+        case .dataFlow:   return "Data Flow"
+        case .aiTest:     return "AI Lab"
+        case .settings:   return "Settings"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .main:
-            return "dot.radiowaves.left.and.right"
-        case .treeView:
-            return "point.3.filled.connected.trianglepath.dotted"
-        case .dataFlow:
-            return "arrow.triangle.branch"
-        case .settings:
-            return "gearshape"
+        case .main:       return "dot.radiowaves.left.and.right"
+        case .treeView:   return "point.3.filled.connected.trianglepath.dotted"
+        case .dataFlow:   return "arrow.triangle.branch"
+        case .aiTest:     return "waveform.and.mic"
+        case .settings:   return "gearshape"
         }
     }
 }
@@ -1397,6 +1392,12 @@ private struct TacNetTabShellView: View {
                     Label(TacNetTab.dataFlow.title, systemImage: TacNetTab.dataFlow.systemImage)
                 }
                 .tag(TacNetTab.dataFlow)
+
+            AITestView()
+                .tabItem {
+                    Label(TacNetTab.aiTest.title, systemImage: TacNetTab.aiTest.systemImage)
+                }
+                .tag(TacNetTab.aiTest)
 
             SettingsView(
                 viewModel: settingsViewModel,
@@ -3218,9 +3219,14 @@ final class MainViewModel: ObservableObject {
     }
 
     func handleIncomingMessage(_ message: Message) {
-        NSLog("[MSG] Received %@ from '%@'", message.type.rawValue, message.senderRole)
-        guard !seenMessageIDs.contains(message.id),
-              let context = localContext() else {
+        NSLog("[MSG] ← received type: \(message.type.rawValue), senderRole: '\(message.senderRole)', senderID: \(message.senderID.prefix(8))")
+
+        if seenMessageIDs.contains(message.id) {
+            NSLog("[MSG] ← dropped — already displayed this message ID")
+            return
+        }
+        guard let context = localContext() else {
+            NSLog("[MSG] ← dropped — no local context (role not claimed yet)")
             return
         }
 
@@ -3229,11 +3235,18 @@ final class MainViewModel: ObservableObject {
 
         switch message.type {
         case .broadcast:
-            guard shouldDisplaySiblingBroadcast(message, localNodeID: context.localNodeID, tree: context.config.tree),
-                  let transcript = message.payload.transcript?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !transcript.isEmpty else {
+            let isSibling = shouldDisplaySiblingBroadcast(message, localNodeID: context.localNodeID, tree: context.config.tree)
+            NSLog("[MSG] ← broadcast sibling check — localNode: \(context.localNodeID), isSibling: \(isSibling ? "yes" : "no")")
+            guard isSibling else {
+                NSLog("[MSG] ← broadcast not displayed — sender is not a sibling of local node")
                 return
             }
+            guard let transcript = message.payload.transcript?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !transcript.isEmpty else {
+                NSLog("[MSG] ← broadcast not displayed — transcript payload is nil or empty")
+                return
+            }
+            NSLog("[MSG] ✅ Displaying broadcast: \"\(transcript)\"")
             entryType = .broadcast
             textValue = transcript
 
@@ -3852,6 +3865,314 @@ final class AppBootstrapViewModel: ObservableObject {
             return "Model download failed: \(underlyingDescription)"
         case .invalidArchive:
             return "Model download failed: server returned a non-archive payload. The model URL may be inaccessible or require authentication."
+        }
+    }
+}
+
+// MARK: - AI Lab (solo test: Parakeet STT + Gemma LLM, no BLE required)
+
+@MainActor
+final class AITestViewModel: ObservableObject {
+    enum Phase: Equatable {
+        case idle
+        case recording
+        case transcribing
+        case responding(transcript: String)
+        case done(transcript: String, response: String)
+        case failed(String)
+    }
+
+    @Published var phase: Phase = .idle
+    @Published var parakeetReady = false
+    @Published var parakeetProgress: Double = 0
+    @Published var gemmaReady = false
+
+    private let audioService = AudioService()
+
+    init() {
+        Task { await startParakeetDownload() }
+        Task { await checkGemmaReady() }
+    }
+
+    private func startParakeetDownload() async {
+        if await ModelDownloadService.parakeet.canUseTacticalFeatures() {
+            parakeetReady = true
+            parakeetProgress = 1.0
+            return
+        }
+        NSLog("[AILab] Parakeet not ready — triggering download now")
+        do {
+            _ = try await ModelDownloadService.parakeet.ensureModelAvailable { [weak self] pct in
+                Task { @MainActor [weak self] in
+                    self?.parakeetProgress = pct
+                    if pct >= 1.0 { self?.parakeetReady = true }
+                }
+            }
+            parakeetReady = true
+            parakeetProgress = 1.0
+        } catch {
+            NSLog("[AILab] ❌ Parakeet download failed: %@", error.localizedDescription)
+        }
+    }
+
+    private func checkGemmaReady() async {
+        while !gemmaReady {
+            gemmaReady = await ModelDownloadService.live.canUseTacticalFeatures()
+            if !gemmaReady {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+        }
+    }
+
+    func startRecording() {
+        Task {
+            do {
+                try await audioService.pttPressed()
+                phase = .recording
+            } catch {
+                phase = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    func stopRecording() {
+        Task {
+            do {
+                phase = .transcribing
+                guard let seq = try await audioService.pttReleased() else {
+                    phase = .failed("No speech detected — try speaking closer to the mic")
+                    return
+                }
+                await audioService.waitForIdle()
+                let history = await audioService.transcriptHistory
+                guard let transcript = history.first(where: { $0.sequence == seq })?.transcript
+                    .trimmingCharacters(in: .whitespacesAndNewlines), !transcript.isEmpty else {
+                    phase = .failed("Transcription returned empty")
+                    return
+                }
+
+                phase = .responding(transcript: transcript)
+                let handle = try await CactusModelInitializationService.shared.initializeModel()
+                let messagesJSON = buildMessagesJSON(transcript: transcript)
+                let rawJSON = try cactusComplete(handle, messagesJSON,
+                                                 #"{"max_tokens":120,"temperature":0.0}"#,
+                                                 nil, nil, nil)
+                let response = extractText(from: rawJSON)
+                phase = .done(transcript: transcript, response: response)
+            } catch {
+                phase = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    func reset() { phase = .idle }
+
+    var isBusy: Bool {
+        switch phase {
+        case .transcribing, .responding: return true
+        default: return false
+        }
+    }
+
+    private func buildMessagesJSON(transcript: String) -> String {
+        let escaped = transcript
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return """
+        [{"role":"system","content":"You are a concise tactical assistant. Reply in one short sentence."},\
+        {"role":"user","content":"\(escaped)"}]
+        """
+    }
+
+    private func extractText(from json: String) -> String {
+        let trimmed = json.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = trimmed.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return trimmed
+        }
+        for key in ["response", "text", "content", "summary"] {
+            if let val = obj[key] as? String, !val.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return val.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        if let result = obj["result"] as? [String: Any] {
+            for key in ["response", "text", "content"] {
+                if let val = result[key] as? String, !val.isEmpty { return val }
+            }
+        }
+        return trimmed
+    }
+}
+
+struct AITestView: View {
+    @StateObject private var vm = AITestViewModel()
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 24) {
+                    modelStatusSection
+                    Divider()
+                    pttSection
+                    resultSection
+                }
+                .padding()
+            }
+            .navigationTitle("AI Lab")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private var modelStatusSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Model Status").font(.headline)
+            parakeetRow
+            modelRow(name: "Gemma 4 E4B (LLM)", ready: vm.gemmaReady)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var parakeetRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Image(systemName: vm.parakeetReady ? "checkmark.circle.fill" : "arrow.down.circle")
+                    .foregroundStyle(vm.parakeetReady ? .green : .orange)
+                Text("Parakeet CTC 1.1B (STT)").font(.subheadline)
+                Spacer()
+                Text(vm.parakeetReady ? "Ready" : String(format: "%.0f%%", vm.parakeetProgress * 100))
+                    .font(.caption)
+                    .foregroundStyle(vm.parakeetReady ? .green : .secondary)
+            }
+            if !vm.parakeetReady && vm.parakeetProgress > 0 {
+                ProgressView(value: vm.parakeetProgress)
+                    .tint(.orange)
+            }
+        }
+    }
+
+    private func modelRow(name: String, ready: Bool) -> some View {
+        HStack {
+            Image(systemName: ready ? "checkmark.circle.fill" : "arrow.down.circle")
+                .foregroundStyle(ready ? .green : .orange)
+            Text(name).font(.subheadline)
+            Spacer()
+            Text(ready ? "Ready" : "Downloading…")
+                .font(.caption)
+                .foregroundStyle(ready ? .green : .secondary)
+        }
+    }
+
+    private var pttSection: some View {
+        VStack(spacing: 12) {
+            Text(pttLabel)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            Circle()
+                .fill(pttColor.opacity(0.2))
+                .overlay(Circle().stroke(pttColor, lineWidth: 3))
+                .overlay(
+                    Image(systemName: pttIcon)
+                        .font(.system(size: 44, weight: .semibold))
+                        .foregroundStyle(pttColor)
+                )
+                .frame(width: 160, height: 160)
+                .scaleEffect(vm.phase == .recording ? 1.05 : 1.0)
+                .animation(.easeInOut(duration: 0.15), value: vm.phase == .recording)
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { _ in
+                            if vm.phase == .idle { vm.startRecording() }
+                        }
+                        .onEnded { _ in
+                            if vm.phase == .recording { vm.stopRecording() }
+                        }
+                )
+                .disabled(!vm.parakeetReady || vm.isBusy)
+
+            if case .failed = vm.phase {
+                Button("Try Again") { vm.reset() }
+                    .buttonStyle(.bordered)
+            }
+            if case .done = vm.phase {
+                Button("Reset") { vm.reset() }
+                    .buttonStyle(.bordered)
+            }
+        }
+    }
+
+    private var resultSection: some View {
+        VStack(spacing: 16) {
+            switch vm.phase {
+            case .idle, .recording:
+                EmptyView()
+            case .transcribing:
+                progressCard(label: "Transcribing with Parakeet…", color: .blue)
+            case .responding(let transcript):
+                Group {
+                    resultCard(title: "You said", text: transcript, color: .blue)
+                    progressCard(label: "Gemma thinking…", color: .purple)
+                }
+            case .done(let transcript, let response):
+                resultCard(title: "Transcript (Parakeet)", text: transcript, color: .blue)
+                resultCard(title: "Response (Gemma)", text: response, color: .purple)
+            case .failed(let msg):
+                resultCard(title: "Error", text: msg, color: .red)
+            }
+        }
+    }
+
+    private func resultCard(title: String, text: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.caption).foregroundStyle(color)
+            Text(text).font(.body)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(color.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func progressCard(label: String, color: Color) -> some View {
+        HStack(spacing: 10) {
+            ProgressView().tint(color)
+            Text(label).font(.subheadline).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var pttIcon: String {
+        switch vm.phase {
+        case .recording: return "stop.fill"
+        case .transcribing, .responding: return "ellipsis"
+        default: return "mic.fill"
+        }
+    }
+
+    private var pttColor: Color {
+        switch vm.phase {
+        case .recording: return .red
+        case .transcribing, .responding: return .orange
+        case .failed: return .red
+        default: return vm.parakeetReady ? .blue : .gray
+        }
+    }
+
+    private var pttLabel: String {
+        switch vm.phase {
+        case .idle: return vm.parakeetReady ? "Hold to speak" : "Waiting for Parakeet download…"
+        case .recording: return "Release to transcribe"
+        case .transcribing: return "Transcribing…"
+        case .responding: return "Gemma is thinking…"
+        case .done: return "Done"
+        case .failed: return "Something went wrong"
         }
     }
 }

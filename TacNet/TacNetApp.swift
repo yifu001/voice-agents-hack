@@ -11,14 +11,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         handleEventsForBackgroundURLSession identifier: String,
         completionHandler: @escaping () -> Void
     ) {
-        // Only handle our model-download background session.
-        guard identifier == URLSessionDownloadClient.backgroundSessionIdentifier else {
+        switch identifier {
+        case URLSessionDownloadClient.backgroundSessionIdentifier:
+            URLSessionDownloadClient.shared.handleBackgroundSessionEvents(completionHandler: completionHandler)
+        case URLSessionDownloadClient.parakeetSessionIdentifier:
+            URLSessionDownloadClient.parakeet.handleBackgroundSessionEvents(completionHandler: completionHandler)
+        default:
             completionHandler()
-            return
         }
-        // Accessing .shared re-creates the URLSession with the same identifier,
-        // reconnecting it to the in-flight background download task.
-        URLSessionDownloadClient.shared.handleBackgroundSessionEvents(completionHandler: completionHandler)
     }
 }
 
