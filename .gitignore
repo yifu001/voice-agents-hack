@@ -3,3 +3,5 @@
 # Parakeet model weights (bundled in app, too large for git)
 TacNet/Resources/ParakeetCTC/*
 !TacNet/Resources/ParakeetCTC/.gitkeep
+*.pyc
+__pycache__/
