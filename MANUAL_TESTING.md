@@ -604,7 +604,7 @@ Phone 0: Commander (Root)
 
 ### Step 10.1: Tab Navigation
 
-1. **Action (Phone 0):** Tap through all 4 tabs: **Main**, **Tree View**, **Data Flow**, **Settings**.
+1. **Action (Phone 0):** Tap through all 5 tabs: **Main**, **Recon**, **Tree View**, **Data Flow**, **Settings**.
 2. **Observe:** Each tab renders its root view correctly. No blank screens, no error states.
 3. **Observe:** Navigation is responsive (under 300ms per tab switch — subjective check for snappiness).
 
@@ -724,6 +724,120 @@ Phone 0: Commander (Root)
 
 ---
 
+## Phase 12: Recon Tab — Battlefield Scan
+
+**Phones used:** Phone 0 (iPhone 15 Pro or later recommended for LiDAR)
+**Goal:** Verify on-device object detection via Gemma 4 E4B, bearing computation, and range estimation.
+
+> **Prerequisite:** Model must already be downloaded (Phase 1). Recon tab requires camera permission.
+
+### Step 12.1: Recon Tab Renders Empty State
+
+1. **Action (Phone 0):** Navigate to the **Recon** tab (viewfinder icon, between Main and Tree View).
+2. **Observe (Phone 0):** The tab renders with:
+   - A "Battlefield Scan" header with viewfinder icon
+   - Status line: "Ready. Model: Gemma 4 E4B (on-device)."
+   - Camera viewfinder preview (if permission granted) or permission request
+   - Mode picker (Quick / Standard / Detail)
+   - Intent preset buttons (Combatants, Vehicles, People + Vehicles, Weapons, Drones)
+   - Scan button and Clear button
+   - Empty state message: "No targets yet. Point the camera and tap Scan."
+
+- [ ] **Pass / Fail** — Verifies: Recon tab UI renders correctly
+
+### Step 12.2: Camera Permission Flow
+
+1. **Action (Phone 0):** If camera permission was not previously granted, the Recon tab should show a permission request.
+2. **Action (Phone 0):** Grant camera permission when prompted.
+3. **Observe (Phone 0):** The camera viewfinder activates and shows a live preview.
+
+- [ ] **Pass / Fail** — Verifies: Camera permission and preview activation
+
+### Step 12.3: Basic Object Detection — People
+
+1. **Action (Phone 0):** Point the camera at a person (or a group of people) standing 3-10 meters away.
+2. **Action (Phone 0):** Select the **"People + Vehicles"** intent preset.
+3. **Action (Phone 0):** Select **Standard** mode.
+4. **Action (Phone 0):** Tap **Scan**.
+5. **Observe (Phone 0):** Status changes to "Running Gemma 4 on-device..." with a spinner.
+6. **Observe (Phone 0):** After 2-10 seconds (varies by device), results appear:
+   - One or more sighting cards with labels (e.g., "person", "man", "woman")
+   - Each card shows a description, bearing (e.g., "045 TN"), and range (e.g., "5.2 m")
+   - Red bounding boxes overlay the captured image on the viewfinder
+7. **Observe (Phone 0):** Status changes to "N target(s) detected."
+
+- [ ] **Pass / Fail** — Verifies: On-device detection pipeline works end-to-end
+
+### Step 12.4: Bearing Accuracy (Compass)
+
+1. **Action (Phone 0):** Open Apple's Compass app and note the current heading.
+2. **Action (Phone 0):** Point the camera directly at a target and run a scan.
+3. **Observe (Phone 0):** The bearing shown on the sighting card should be within ~5 degrees of the compass heading (accounting for the target being slightly off-center).
+4. **Action (Phone 0):** Rotate 90 degrees and scan the same target.
+5. **Observe (Phone 0):** The bearing should shift by approximately 90 degrees.
+
+- [ ] **Pass / Fail** — Verifies: Bearing fusion with CLLocationManager heading
+
+### Step 12.5: Range Estimation — LiDAR (iPhone Pro only)
+
+1. **Prerequisite:** iPhone 15 Pro, 16 Pro, or later with LiDAR sensor.
+2. **Action (Phone 0):** Point the camera at a person at a known distance (e.g., measure 5 meters with a tape measure).
+3. **Action (Phone 0):** Tap **Scan**.
+4. **Observe (Phone 0):** The range shown should be within 20% of the actual distance. The range icon should show a sensor/radiowaves symbol (indicating LiDAR source).
+
+- [ ] **Pass / Fail** — Verifies: LiDAR depth sampling via ARKit sceneDepth
+
+### Step 12.6: Range Estimation — Pinhole Fallback (non-LiDAR or LiDAR unavailable)
+
+1. **Action:** On a non-Pro iPhone (or if LiDAR is unavailable), scan a person at a known distance.
+2. **Observe (Phone 0):** The range shown uses a ruler icon (pinhole source). Accuracy is roughly 25-35% of actual distance.
+3. **Observe:** For an unknown object class (e.g., a random item the model labels as something not in the height table), range may show "-- m" (nil).
+
+- [ ] **Pass / Fail** — Verifies: Pinhole distance fallback via TargetFusion
+
+### Step 12.7: Scan Modes — Quick vs Detail
+
+1. **Action (Phone 0):** Scan the same scene with **Quick** mode.
+2. **Observe:** Scan completes faster (fewer tokens) but may miss small or distant targets.
+3. **Action (Phone 0):** Scan the same scene with **Detail** mode.
+4. **Observe:** Scan takes longer but may detect more targets or provide longer descriptions.
+5. **Compare:** Detail mode should generally detect >= the targets found in Quick mode.
+
+- [ ] **Pass / Fail** — Verifies: ReconScanMode token budget affects detection quality
+
+### Step 12.8: Custom Intent
+
+1. **Action (Phone 0):** Type a custom intent in the text field: "Detect any doors, windows, or entry points in this building."
+2. **Action (Phone 0):** Point the camera at a building and tap **Scan**.
+3. **Observe (Phone 0):** The model attempts to detect the custom categories. Results may vary but the intent text should influence what the model looks for.
+
+- [ ] **Pass / Fail** — Verifies: Custom intent overrides preset
+
+### Step 12.9: Clear Results
+
+1. **Action (Phone 0):** After a scan with results, tap **Clear**.
+2. **Observe (Phone 0):** All sighting cards disappear. The viewfinder returns to live preview. Status returns to idle.
+
+- [ ] **Pass / Fail** — Verifies: ReconViewModel.clearSightings()
+
+### Step 12.10: No False Positives on Empty Scene
+
+1. **Action (Phone 0):** Point the camera at a blank wall or empty sky.
+2. **Action (Phone 0):** Select **"Combatants"** intent and tap **Scan**.
+3. **Observe (Phone 0):** The model returns 0 detections (empty array). Status shows "0 targets detected." or returns to idle with no cards.
+
+- [ ] **Pass / Fail** — Verifies: Gemma 4 returns [] when nothing matches
+
+### Step 12.11: Offline Operation
+
+1. **Action (Phone 0):** Enable **Airplane Mode** (WiFi + cellular off).
+2. **Action (Phone 0):** Run a scan on any scene.
+3. **Observe (Phone 0):** The scan completes successfully. No network errors. The model runs entirely on-device.
+
+- [ ] **Pass / Fail** — Verifies: 100% on-device inference, zero network dependency
+
+---
+
 ## Results Summary
 
 Record the outcome of each assertion below. Mark **✅** for pass or **❌** for fail.
@@ -786,8 +900,19 @@ Record the outcome of each assertion below. Mark **✅** for pass or **❌** for
 | 11 | VAL-CROSS-014 | GPS coordinates through full message chain | ⬜ |
 | 11 | VAL-TREE-014 | Auto-release after 60s BLE disconnect | ⬜ |
 | 11 | VAL-TREE-016 | Remove claimed node kicks user | ⬜ |
+| 12 | VAL-RECON-001 | Recon tab renders empty state | ⬜ |
+| 12 | VAL-RECON-002 | Camera permission and preview activation | ⬜ |
+| 12 | VAL-RECON-003 | On-device detection pipeline (people) | ⬜ |
+| 12 | VAL-RECON-004 | Bearing accuracy (compass heading) | ⬜ |
+| 12 | VAL-RECON-005 | LiDAR range estimation (Pro devices) | ⬜ |
+| 12 | VAL-RECON-006 | Pinhole range fallback (non-LiDAR) | ⬜ |
+| 12 | VAL-RECON-007 | Quick vs Detail scan modes | ⬜ |
+| 12 | VAL-RECON-008 | Custom intent override | ⬜ |
+| 12 | VAL-RECON-009 | Clear results | ⬜ |
+| 12 | VAL-RECON-010 | No false positives on empty scene | ⬜ |
+| 12 | VAL-RECON-011 | Offline operation (airplane mode) | ⬜ |
 
-**Total assertions:** 53 | **Passed:** ___ / 53 | **Failed:** ___ / 53
+**Total assertions:** 64 | **Passed:** ___ / 64 | **Failed:** ___ / 64
 
 ---
 
