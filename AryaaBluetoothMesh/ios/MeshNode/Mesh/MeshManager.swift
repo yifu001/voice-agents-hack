@@ -13,21 +13,14 @@ final class MeshManager: NSObject, ObservableObject {
     @Published private(set) var forwardedCount: Int = 0
     @Published private(set) var dedupedCount: Int = 0
 
-    let selfId: UUID
+    let selfId: String
     private var msgCounter: UInt32 = 0
     private let cache = MeshCache()
     private let peripheral = MeshPeripheral()
     private let central = MeshCentral()
 
-    override init() {
-        if let stored = UserDefaults.standard.string(forKey: "meshSelfId"),
-           let uuid = UUID(uuidString: stored) {
-            self.selfId = uuid
-        } else {
-            let newId = UUID()
-            UserDefaults.standard.set(newId.uuidString, forKey: "meshSelfId")
-            self.selfId = newId
-        }
+    init(nodeID: String) {
+        self.selfId = nodeID
         super.init()
         peripheral.delegate = self
         central.delegate = self

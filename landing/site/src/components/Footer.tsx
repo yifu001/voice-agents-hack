@@ -1,4 +1,3 @@
-import { PulsingDot } from './primitives/PulsingDot';
 import { footer } from '@/content/copy';
 
 const ASCII_TREE = `         ┌──[ COMMANDER ]──┐
@@ -12,7 +11,7 @@ export function Footer() {
     <footer
       className="border-t"
       style={{
-        borderColor: 'rgba(232, 236, 233, 0.08)',
+        borderColor: 'rgba(236, 234, 228, 0.08)',
         background: 'var(--color-bg)',
       }}
     >
@@ -20,18 +19,33 @@ export function Footer() {
         <div className="grid gap-12 lg:grid-cols-[1.2fr_1fr]">
           {/* Left */}
           <div>
+            {/* Custom sign-off mark — replaces the duplicate pulsing-dot the
+                nav already shows. Reads as an end-stamp on a tactical doc. */}
             <div className="flex items-center gap-3">
               <span
-                className="font-semibold"
+                className="display-tight"
                 style={{
                   color: 'var(--color-text)',
                   fontSize: 17,
-                  letterSpacing: '-0.01em',
+                  fontWeight: 600,
                 }}
               >
                 TacNet
               </span>
-              <PulsingDot size="sm" label="Operational" />
+              <span
+                aria-hidden
+                className="inline-block h-px w-6"
+                style={{ background: 'var(--color-border-hot)' }}
+              />
+              <span
+                className="text-[10px] uppercase tracking-[0.22em]"
+                style={{
+                  color: 'var(--color-text-dim)',
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
+                end of transmission
+              </span>
             </div>
             <p
               className="mt-4 max-w-md leading-[1.6]"

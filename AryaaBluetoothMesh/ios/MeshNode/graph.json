@@ -1,0 +1,16 @@
+{
+  "nodes": [
+    { "id": "A" },
+    { "id": "B" },
+    { "id": "C" },
+    { "id": "D" }
+  ],
+  "edges": [
+    { "from": "A", "to": "B", "type": "exact" },
+    { "from": "B", "to": "A", "type": "exact" },
+    { "from": "B", "to": "C", "type": "exact" },
+    { "from": "C", "to": "B", "type": "summary" },
+    { "from": "B", "to": "D", "type": "exact" },
+    { "from": "D", "to": "B", "type": "summary" }
+  ]
+}

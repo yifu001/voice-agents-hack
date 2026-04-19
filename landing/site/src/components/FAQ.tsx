@@ -6,6 +6,7 @@ export function FAQ() {
   return (
     <SectionFrame
       id="faq"
+      code="S-10"
       eyebrow={faq.eyebrow}
       title={faq.title}
     >

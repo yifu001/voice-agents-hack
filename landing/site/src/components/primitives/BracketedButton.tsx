@@ -11,8 +11,12 @@ interface BracketedButtonProps {
 }
 
 /**
- * Tactical-brand CTA. Primary = lime fill; Ghost = bordered transparent;
- * Link = text-only with arrow.
+ * Tactical-brand CTA.
+ * - Primary  = warm sand "etched plate" with dark ink (was neon lime).
+ *              Reads as serious instrumentation, not a highlighter.
+ * - Ghost    = thin neutral border, transparent.
+ * - Link     = underline-on-hover, no chrome — quieter than the prior
+ *              all-bracket-uppercase noise.
  */
 export function BracketedButton({
   children,
@@ -28,9 +32,9 @@ export function BracketedButton({
 
   const styles: Record<string, React.CSSProperties> = {
     primary: {
-      background: 'var(--color-accent)',
-      color: 'var(--color-bg)',
-      border: '1px solid var(--color-accent)',
+      background: 'var(--color-cta)',
+      color: 'var(--color-cta-ink)',
+      border: '1px solid var(--color-cta)',
       borderRadius: 'var(--radius-btn)',
     },
     ghost: {
@@ -43,10 +47,17 @@ export function BracketedButton({
       background: 'transparent',
       color: 'var(--color-text-muted)',
       border: 'none',
+      borderBottom: '1px solid transparent',
+      paddingBottom: '2px',
     },
   };
 
-  const classes = `inline-flex items-center gap-2 font-medium transition-opacity hover:opacity-90 ${
+  const baseHover =
+    variant === 'link'
+      ? 'transition-colors hover:text-[color:var(--color-text)] hover:border-[color:var(--color-text-dim)]'
+      : 'transition-[transform,opacity,background] duration-200 hover:opacity-95 hover:translate-y-[-1px]';
+
+  const classes = `inline-flex items-center gap-2 font-medium ${baseHover} ${
     variant === 'link' ? '' : padding
   } ${className}`;
 

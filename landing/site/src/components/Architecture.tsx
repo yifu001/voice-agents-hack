@@ -8,6 +8,7 @@ export function Architecture() {
   return (
     <SectionFrame
       id="architecture"
+      code="S-04"
       eyebrow={architecture.eyebrow}
       title={architecture.title}
       intro={<p>{architecture.intro}</p>}

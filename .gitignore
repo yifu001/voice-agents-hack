@@ -1,7 +1,38 @@
+# macOS
 .DS_Store
 
-# Parakeet model weights (bundled in app, too large for git)
+# Xcode — user-specific state
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+
+# Xcode — build artifacts
+build/
+DerivedData/
+*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+Package.resolved
+
+# Local model weights — huge, never commit.
+# Rebuild with `cactus download <model>` (see AryaaBluetoothMesh/ios/SETUP.md).
+AryaaBluetoothMesh/ios/MeshNode/Models/
+
+# Vendored binary frameworks — rebuild with `cactus build --apple`.
+# See AryaaBluetoothMesh/ios/SETUP.md.
+AryaaBluetoothMesh/ios/Vendor/
+
+# Parakeet model weights for TacNet (bundled in app, too large for git)
 TacNet/Resources/ParakeetCTC/*
 !TacNet/Resources/ParakeetCTC/.gitkeep
-*.pyc
+
+# Python venvs / caches
+venv/
+.venv/
 __pycache__/
+*.pyc

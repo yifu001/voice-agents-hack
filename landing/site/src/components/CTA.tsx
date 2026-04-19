@@ -6,7 +6,7 @@ export function CTA() {
   return (
     <section
       className="relative border-t"
-      style={{ borderColor: 'rgba(232, 236, 233, 0.08)' }}
+      style={{ borderColor: 'rgba(236, 234, 228, 0.08)' }}
     >
       <GridBackground size={48} opacity={0.04} />
       <div className="relative mx-auto max-w-[1200px] px-6 py-24 text-center sm:px-10 sm:py-32 lg:px-14">

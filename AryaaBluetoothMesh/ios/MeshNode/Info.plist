@@ -26,6 +26,8 @@
 	<string>MeshNode uses Bluetooth to communicate with nearby devices in the mesh network.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>MeshNode uses Bluetooth to communicate with nearby devices in the mesh network.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>MeshNode uses the microphone to transcribe voice messages on-device.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

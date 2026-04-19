@@ -5,6 +5,7 @@ export function HowItWorks() {
   return (
     <SectionFrame
       id="how"
+      code="S-05"
       eyebrow={howItWorks.eyebrow}
       title={howItWorks.title}
       background="dots"

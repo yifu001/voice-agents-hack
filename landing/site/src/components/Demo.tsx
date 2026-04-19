@@ -44,6 +44,7 @@ export function Demo() {
   return (
     <SectionFrame
       id="demo"
+      code="S-07"
       eyebrow={demo.eyebrow}
       title={demo.title}
       intro={<p>{demo.body}</p>}
@@ -187,8 +188,8 @@ function VideoSurface() {
           className="pointer-events-none absolute inset-0"
           style={{
             backgroundImage: `
-              linear-gradient(to right,  rgba(184,255,44,0.04) 1px, transparent 1px),
-              linear-gradient(to bottom, rgba(184,255,44,0.04) 1px, transparent 1px)
+              linear-gradient(to right,  rgba(232,197,71,0.035) 1px, transparent 1px),
+              linear-gradient(to bottom, rgba(232,197,71,0.035) 1px, transparent 1px)
             `,
             backgroundSize: '48px 48px',
           }}
@@ -198,7 +199,7 @@ function VideoSurface() {
           className="pointer-events-none absolute inset-0"
           style={{
             background:
-              'radial-gradient(ellipse at center, rgba(184,255,44,0.1), transparent 60%)',
+              'radial-gradient(ellipse at center, rgba(232,197,71,0.08), transparent 60%)',
           }}
         />
 
@@ -218,8 +219,8 @@ function VideoSurface() {
               width: 84,
               height: 84,
               borderRadius: '50%',
-              background: 'var(--color-accent)',
-              color: 'var(--color-bg)',
+              background: 'var(--color-cta)',
+              color: 'var(--color-cta-ink)',
             }}
           >
             <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden>

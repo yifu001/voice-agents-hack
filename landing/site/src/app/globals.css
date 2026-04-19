@@ -1,33 +1,50 @@
 @import "tailwindcss";
 
 /* ───────────────────────────────────────────────────────────
-   TacNet design tokens — Palette A · Tactical lime
+   TacNet design tokens — Palette B · Field instrument
+   Neutral charcoal base + amber/cyan duotone + sand CTA.
+   Reasoning: the prior palette saturated one lime accent across
+   28+ placements, on green-biased surfaces. This palette uses
+   true-neutral surfaces and reserves color for true signal moments
+   (amber = process/alert, cyan = data/readout). Primary CTA uses a
+   warm sand "etched plate" tone instead of neon highlight.
    ─────────────────────────────────────────────────────────── */
 
 @theme {
-  /* surfaces */
-  --color-bg:           #0A0D0B;
-  --color-surface:      #111511;
-  --color-elevated:     #1A1F1A;
+  /* surfaces — neutral charcoal, no green bias */
+  --color-bg:           #0B0B0C;
+  --color-surface:      #121214;
+  --color-elevated:     #1A1A1D;
 
-  /* borders */
-  --color-border:       #1F251F;
-  --color-border-hot:   #2B3329;
+  /* borders — neutral gray, slightly warmer than prior */
+  --color-border:       #232325;
+  --color-border-hot:   #34343A;
 
-  /* text */
-  --color-text:         #E8ECE9;
-  --color-text-muted:   #8A918C;
-  --color-text-dim:     #5A615C;
+  /* text — slightly warm bone-white */
+  --color-text:         #ECEAE4;
+  --color-text-muted:   #8A8A85;
+  --color-text-dim:     #5A5A57;
 
-  /* accents / signals */
-  --color-accent:       #B8FF2C;
-  --color-accent-soft:  rgba(184, 255, 44, 0.12);
-  --color-signal-amber: #FFB020;
-  --color-signal-red:   #FF4D3A;
+  /* signals — duotone */
+  --color-signal-amber:  #E8C547;          /* phosphor amber  · process / alert */
+  --color-signal-cyan:   #7BB6D9;          /* phosphor cyan   · data / readout  */
+  --color-signal-red:    #E5533A;          /* warm red        · critical only   */
+  --color-signal-amber-soft: rgba(232, 197, 71, 0.12);
+  --color-signal-cyan-soft:  rgba(123, 182, 217, 0.10);
+
+  /* accent — kept for legacy class refs; aliased to amber.
+     Components should prefer the explicit signal vars going forward. */
+  --color-accent:       #E8C547;
+  --color-accent-soft:  rgba(232, 197, 71, 0.10);
+
+  /* CTA — warm sand "etched plate" */
+  --color-cta:          #ECE4CE;
+  --color-cta-ink:      #1A1715;
 
   /* fonts — wired via next/font in layout.tsx */
-  --font-sans: var(--font-dm-sans),        ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-jetbrains-mono), ui-monospace,  SFMono-Regular,  monospace;
+  --font-sans:    var(--font-funnel-sans),    ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-funnel-display), var(--font-funnel-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono:    var(--font-plex-mono),      ui-monospace,  SFMono-Regular,  monospace;
 
   /* radii */
   --radius-panel: 2px;
@@ -46,31 +63,50 @@ html, body {
   scroll-behavior: smooth;
 }
 
-/* Ensure anchor jumps clear the fixed nav (~72px + some air). */
+/* Anchor jumps clear the fixed nav. */
 section[id] { scroll-margin-top: 96px; }
 
 ::selection {
-  background: var(--color-accent);
+  background: var(--color-signal-amber);
   color:      var(--color-bg);
 }
 
 /* ───────────────────────────────────────────────────────────
-   Utilities — used by layout primitives
+   Utilities
    ─────────────────────────────────────────────────────────── */
 
-/* 48px grid overlay (hero + architecture backgrounds) */
+/* 48px grid overlay — slightly cooler line color now */
 .bg-grid-48 {
   background-image:
-    linear-gradient(to right,  rgba(232, 236, 233, 0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(232, 236, 233, 0.03) 1px, transparent 1px);
+    linear-gradient(to right,  rgba(236, 234, 228, 0.025) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(236, 234, 228, 0.025) 1px, transparent 1px);
   background-size: 48px 48px;
 }
 
-/* Noise grain — inline SVG fractalNoise, no external file. */
+/* Coarser 96px grid — for hero topographic underlay */
+.bg-grid-96 {
+  background-image:
+    linear-gradient(to right,  rgba(236, 234, 228, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(236, 234, 228, 0.04) 1px, transparent 1px);
+  background-size: 96px 96px;
+}
+
+/* CRT scanlines — very subtle, gives "instrument readout" texture */
+.bg-scanlines {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.0) 0px,
+    rgba(0, 0, 0, 0.0) 2px,
+    rgba(255, 255, 255, 0.012) 2px,
+    rgba(255, 255, 255, 0.012) 3px
+  );
+}
+
+/* Noise grain — neutral now (was greenish 0.91/0.93/0.91). */
 .bg-noise {
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='256' height='256'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.91 0 0 0 0 0.93 0 0 0 0 0.91 0 0 0 0.6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='256' height='256'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.92 0 0 0 0 0.91 0 0 0 0 0.88 0 0 0 0.6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
   background-size: 256px;
-  opacity: 0.035;
+  opacity: 0.04;
   mix-blend-mode: overlay;
 }
 
@@ -81,7 +117,7 @@ section[id] { scroll-margin-top: 96px; }
   position: absolute;
   top: -1.5px;
   width: 3px; height: 3px;
-  background: rgba(232, 236, 233, 0.2);
+  background: rgba(236, 234, 228, 0.2);
   border-radius: 50%;
 }
 .section-dots::before { left: -1.5px; }
@@ -94,6 +130,13 @@ section[id] { scroll-margin-top: 96px; }
 }
 .pulse-op { animation: pulse-op 2.5s ease-in-out infinite; }
 
+/* Slow ticker for hero timestamp readout */
+@keyframes blink-cursor {
+  0%, 50%   { opacity: 1; }
+  51%, 100% { opacity: 0.25; }
+}
+.blink-cursor { animation: blink-cursor 1.1s steps(1, end) infinite; }
+
 /* Fade-in-up + stagger */
 @keyframes fade-in-up {
   from { opacity: 0; transform: translateY(12px); }
@@ -104,8 +147,15 @@ section[id] { scroll-margin-top: 96px; }
 .landing-stagger-2      { animation-delay: 120ms; }
 .landing-stagger-3      { animation-delay: 200ms; }
 
+/* Display-font tracking helper for headlines */
+.display-tight {
+  font-family: var(--font-display);
+  letter-spacing: -0.035em;
+  font-feature-settings: "ss01" on, "ss02" on;
+}
+
 /* ───────────────────────────────────────────────────────────
-   Reduced motion — kill everything that's non-essential
+   Reduced motion — kill everything non-essential
    ─────────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {

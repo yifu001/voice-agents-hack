@@ -11,8 +11,8 @@ export function GridBackground({ size = 48, opacity = 0.03 }: GridBackgroundProp
       className="pointer-events-none absolute inset-0"
       style={{
         backgroundImage: `
-          linear-gradient(to right,  rgba(232, 236, 233, ${opacity}) 1px, transparent 1px),
-          linear-gradient(to bottom, rgba(232, 236, 233, ${opacity}) 1px, transparent 1px)
+          linear-gradient(to right,  rgba(236, 234, 228, ${opacity}) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(236, 234, 228, ${opacity}) 1px, transparent 1px)
         `,
         backgroundSize: `${size}px ${size}px`,
       }}

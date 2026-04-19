@@ -15,8 +15,8 @@ export default function Image() {
           height: '100%',
           display: 'flex',
           flexDirection: 'column',
-          background: '#0A0D0B',
-          color: '#E8ECE9',
+          background: '#0B0B0C',
+          color: '#ECEAE4',
           fontFamily: 'sans-serif',
           padding: 72,
           position: 'relative',
@@ -27,7 +27,7 @@ export default function Image() {
           style={{
             position: 'absolute',
             inset: 24,
-            border: '1px solid rgba(232,236,233,0.12)',
+            border: '1px solid rgba(236,234,228,0.12)',
           }}
         />
 
@@ -37,7 +37,7 @@ export default function Image() {
             position: 'absolute',
             inset: 0,
             backgroundImage:
-              'linear-gradient(to right, rgba(232,236,233,0.04) 1px, transparent 1px), linear-gradient(to bottom, rgba(232,236,233,0.04) 1px, transparent 1px)',
+              'linear-gradient(to right, rgba(236,234,228,0.04) 1px, transparent 1px), linear-gradient(to bottom, rgba(236,234,228,0.04) 1px, transparent 1px)',
             backgroundSize: '48px 48px',
           }}
         />
@@ -56,12 +56,12 @@ export default function Image() {
               width: 14,
               height: 14,
               borderRadius: 999,
-              background: '#B8FF2C',
+              background: '#E8C547',
             }}
           />
           <div
             style={{
-              color: '#B8FF2C',
+              color: '#8A8A85',
               fontSize: 22,
               letterSpacing: '0.2em',
               textTransform: 'uppercase',
@@ -72,13 +72,13 @@ export default function Image() {
           <div
             style={{
               marginLeft: 'auto',
-              color: '#8A918C',
+              color: '#8A8A85',
               fontSize: 22,
               letterSpacing: '0.12em',
               textTransform: 'uppercase',
             }}
           >
-            TacNet · v0.1
+            TacNet · v0.4
           </div>
         </div>
 
@@ -87,7 +87,7 @@ export default function Image() {
           style={{
             position: 'relative',
             marginTop: 64,
-            color: '#8A918C',
+            color: '#8A8A85',
             fontSize: 24,
             letterSpacing: '0.18em',
             textTransform: 'uppercase',
@@ -117,7 +117,7 @@ export default function Image() {
             position: 'relative',
             marginTop: 32,
             fontSize: 26,
-            color: '#8A918C',
+            color: '#8A8A85',
             lineHeight: 1.3,
             maxWidth: 900,
           }}
@@ -133,7 +133,7 @@ export default function Image() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            color: '#5A615C',
+            color: '#5A5A57',
             fontSize: 20,
             letterSpacing: '0.1em',
             textTransform: 'uppercase',

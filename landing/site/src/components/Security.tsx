@@ -5,6 +5,7 @@ export function Security() {
   return (
     <SectionFrame
       id="security"
+      code="S-09"
       eyebrow={security.eyebrow}
       title={security.title}
     >
