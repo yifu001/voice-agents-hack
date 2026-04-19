@@ -1,5 +1,5 @@
 // OutputPostProcessor.swift
-// TacNet
+// MeshNode
 //
 // Post-processes every Gemma 4 E4B SLM output before it reaches AVSpeechSynthesizer.
 // Pipeline position: Cactus inference output → OutputPostProcessor → TextToSpeechService.
@@ -22,12 +22,14 @@ public struct OutputPostProcessor: Sendable {
         case leader   // 18-word cap
         case peer     // 12-word cap
         case summary  // 20-word cap
+        case briefing // 80-word cap — operator-initiated retrieval
 
         var wordCap: Int {
             switch self {
-            case .leader:  return 18
-            case .peer:    return 12
-            case .summary: return 20
+            case .leader:   return 18
+            case .peer:     return 12
+            case .summary:  return 20
+            case .briefing: return 80
             }
         }
     }

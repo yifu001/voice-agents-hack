@@ -14,6 +14,10 @@ struct ContentView: View {
     @EnvironmentObject var summaries: SummaryStore
     @EnvironmentObject var llm: LLMService
     @EnvironmentObject var tts: TTSService
+    @EnvironmentObject var recon: ReconViewModel
+
+    @State private var spokenIDs: Set<String> = []
+    @State private var retryTask: Task<Void, Never>?
 
     var body: some View {
         TabView {
@@ -27,11 +31,21 @@ struct ContentView: View {
                 .tabItem { Label("Map", systemImage: "map") }
             RetrievalView()
                 .tabItem { Label("Retrieval", systemImage: "sparkles.rectangle.stack") }
+            ReconView(viewModel: recon)
+                .tabItem { Label("Recon", systemImage: "viewfinder") }
         }
         .hideKeyboardOnTap()
-        .onChange(of: mesh.messages.count) { _, _ in kickOffPendingSummaries() }
+        .onChange(of: mesh.messages.count) { _, _ in
+            kickOffPendingSummaries()
+            speakExactMessages()
+            // After a burst settles, retry any that failed during the burst.
+            scheduleRetry()
+        }
         .onChange(of: llm.state) { _, newValue in
-            if newValue == .ready { kickOffPendingSummaries() }
+            if newValue == .ready {
+                kickOffPendingSummaries()
+                summaries.retryPending()
+            }
         }
     }
 
@@ -46,6 +60,28 @@ struct ContentView: View {
         for msg in mesh.messages where msg.senderId != mesh.selfId {
             if identity.incomingEdgeType(fromSenderID: msg.senderId) == .summary {
                 summaries.requestSummary(messageID: msg.id, text: msg.payload)
+            }
+        }
+    }
+
+    /// Debounced retry: waits 2 seconds after the last message burst, then
+    /// retries any failed summaries. Cancels the previous timer if a new
+    /// message arrives before it fires, so we don't hammer the LLM mid-burst.
+    private func scheduleRetry() {
+        retryTask?.cancel()
+        retryTask = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            summaries.retryPending()
+        }
+    }
+
+    private func speakExactMessages() {
+        for msg in mesh.messages where msg.senderId != mesh.selfId {
+            guard !spokenIDs.contains(msg.id) else { continue }
+            if identity.incomingEdgeType(fromSenderID: msg.senderId) == .exact {
+                spokenIDs.insert(msg.id)
+                tts.speak(msg.payload)
             }
         }
     }
@@ -66,6 +102,7 @@ struct ContentView: View {
                 case .done(let s):
                     return DisplayMessage(message: msg, style: .paraphrased, displayPayload: s)
                 case .failed:
+                    // Show original text as fallback while retries may still be pending.
                     return DisplayMessage(message: msg, style: .paraphrased, displayPayload: msg.payload)
                 case .pending:
                     return DisplayMessage(message: msg, style: .awaiting, displayPayload: "…")

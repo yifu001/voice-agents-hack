@@ -14,8 +14,11 @@ targets:
         excludes:
           - "Models"
           - "Models/**"
+          - "soul.md"
       - path: MeshNode/Models
         type: folder
+        buildPhase: resources
+      - path: MeshNode/soul.md
         buildPhase: resources
     dependencies:
       - framework: Vendor/cactus-ios.xcframework
@@ -30,8 +33,9 @@ targets:
         LSRequiresIPhoneOS: true
         NSBluetoothAlwaysUsageDescription: "MeshNode uses Bluetooth to communicate with nearby devices in the mesh network."
         NSBluetoothPeripheralUsageDescription: "MeshNode uses Bluetooth to communicate with nearby devices in the mesh network."
+        NSCameraUsageDescription: "MeshNode uses the camera to scan the scene and analyze it on-device with Gemma."
         NSMicrophoneUsageDescription: "MeshNode uses the microphone to transcribe voice messages on-device."
-        NSLocationWhenInUseUsageDescription: "MeshNode uses your location to share your position with squad members on the map."
+        NSLocationWhenInUseUsageDescription: "MeshNode uses your location and heading to share your position on the map and estimate bearings to detected targets."
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UILaunchScreen:

@@ -11,30 +11,54 @@ final class TTSService: ObservableObject {
 
     private let synth = AVSpeechSynthesizer()
     private let delegate = SynthDelegate()
+    /// FIFO queue so utterances play in the order they were enqueued,
+    /// even if summaries complete out of order.
+    private var queue: [String] = []
+    private var isPlaying = false
 
     init() {
         synth.delegate = delegate
         delegate.onFinish = { [weak self] in
-            Task { @MainActor in self?.isSpeaking = false }
+            Task { @MainActor in self?.utteranceFinished() }
         }
     }
 
     func speak(_ text: String) {
         guard isEnabled, !text.isEmpty else { return }
-        log.info("TTS speaking: \(text, privacy: .public)")
+        log.info("TTS enqueue: \(text, privacy: .public)")
+        queue.append(text)
+        playNext()
+    }
 
-        let utterance = AVSpeechUtterance(string: text)
+    func stop() {
+        queue.removeAll()
+        synth.stopSpeaking(at: .immediate)
+        isPlaying = false
+        isSpeaking = false
+    }
+
+    private func playNext() {
+        guard !isPlaying, let next = queue.first else { return }
+        queue.removeFirst()
+        log.info("TTS speaking: \(next, privacy: .public)")
+
+        let utterance = AVSpeechUtterance(string: next)
         utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         utterance.pitchMultiplier = 1.0
 
+        isPlaying = true
         isSpeaking = true
         synth.speak(utterance)
     }
 
-    func stop() {
-        synth.stopSpeaking(at: .immediate)
-        isSpeaking = false
+    private func utteranceFinished() {
+        isPlaying = false
+        if queue.isEmpty {
+            isSpeaking = false
+        } else {
+            playNext()
+        }
     }
 }
 

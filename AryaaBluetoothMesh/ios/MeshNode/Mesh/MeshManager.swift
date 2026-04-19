@@ -79,10 +79,13 @@ final class MeshManager: NSObject, ObservableObject {
         messages.append(msg)
         sentCount += 1
         updatePeerLocation(from: msg)
-        guard let data = msg.encode() else { return }
-        broadcast(data, excluding: nil)
+        guard let data = msg.encode(),
+              let encrypted = MeshCrypto.encrypt(data) else { return }
+        broadcast(encrypted, excluding: nil)
     }
 
+    /// Sends already-encrypted data over both BLE paths (central writes + peripheral notifications).
+    /// All data passed here must be encrypted via `MeshCrypto.encrypt` before calling.
     private func broadcast(_ data: Data, excluding sourceId: String?) {
         central.broadcast(data, excluding: sourceId)
         peripheral.broadcast(data)
@@ -99,6 +102,7 @@ final class MeshManager: NSObject, ObservableObject {
     }
 
     private func sendLocationHeartbeat() {
+        pruneStaleLocations()
         guard locationManager.hasLocation else { return }
         guard connectedPeerCount > 0 else { return }
         msgCounter += 1
@@ -115,14 +119,33 @@ final class MeshManager: NSObject, ObservableObject {
         cache.insert(sender: msg.senderId, msgId: msg.msgId)
         updatePeerLocation(from: msg)
         sentCount += 1
-        guard let data = msg.encode() else { return }
-        broadcast(data, excluding: nil)
+        guard let data = msg.encode(),
+              let encrypted = MeshCrypto.encrypt(data) else { return }
+        broadcast(encrypted, excluding: nil)
+    }
+
+    /// Remove peer locations that haven't been refreshed in 30 seconds.
+    /// Prevents stale entries from lingering when a device changes node identity.
+    private func pruneStaleLocations() {
+        let cutoff = Date().addingTimeInterval(-30)
+        for (id, loc) in peerLocations where id != selfId {
+            if loc.timestamp < cutoff {
+                peerLocations.removeValue(forKey: id)
+            }
+        }
     }
 
     // MARK: - Incoming
 
+    /// Decrypts and processes an incoming BLE message.
+    ///
+    /// Messages that fail decryption (wrong key, tampered, or unencrypted) are
+    /// silently dropped — this is how we verify that the sender has the same
+    /// pre-shared key bundled in their app. Forwarded messages are re-encrypted
+    /// with a fresh nonce before rebroadcast.
     private func handleIncoming(_ data: Data, from sourceId: String?) {
-        guard let msg = MeshMessage.decode(data) else { return }
+        guard let plaintext = MeshCrypto.decrypt(data) else { return }
+        guard let msg = MeshMessage.decode(plaintext) else { return }
         if msg.senderId == selfId { return }
         let isNew = cache.insert(sender: msg.senderId, msgId: msg.msgId)
         guard isNew else {
@@ -138,7 +161,8 @@ final class MeshManager: NSObject, ObservableObject {
         guard msg.ttl > 1 else { return }
         var forwarded = msg
         forwarded.ttl -= 1
-        guard let fwData = forwarded.encode() else { return }
+        guard let fwPlain = forwarded.encode(),
+              let fwData = MeshCrypto.encrypt(fwPlain) else { return }
         broadcast(fwData, excluding: sourceId)
         forwardedCount += 1
     }

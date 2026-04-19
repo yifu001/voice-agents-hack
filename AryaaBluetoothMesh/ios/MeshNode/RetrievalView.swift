@@ -1,4 +1,7 @@
 import SwiftUI
+import os
+
+private let log = Logger(subsystem: "com.cactushack.MeshNode", category: "retrieval")
 
 struct RetrievalView: View {
     @EnvironmentObject var mesh: MeshManager
@@ -9,8 +12,10 @@ struct RetrievalView: View {
     @State private var question: String = ""
     @State private var composedPrompt: String?
     @State private var answer: String = ""
-    @State private var isStreaming: Bool = false
-    @State private var streamTask: Task<Void, Never>?
+    @State private var isAnswering: Bool = false
+    @State private var answerTask: Task<Void, Never>?
+
+    private let postProcessor = OutputPostProcessor()
 
     var body: some View {
         NavigationStack {
@@ -62,7 +67,7 @@ struct RetrievalView: View {
                     .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.tODDim, lineWidth: 1))
                     .font(.callout)
                     .lineLimit(1...4)
-                if isStreaming {
+                if isAnswering {
                     Button(action: cancel) {
                         Text("STOP")
                             .font(.caption.monospaced()).bold().tracking(2)
@@ -118,6 +123,7 @@ struct RetrievalView: View {
         !question.trimmingCharacters(in: .whitespaces).isEmpty
             && identity.nodeID != nil
             && llm.isReady
+            && !isAnswering
     }
 
     private var output: some View {
@@ -153,56 +159,100 @@ struct RetrievalView: View {
         }
     }
 
+    /// Max number of recent messages to include in the LLM context.
+    /// Gemma 4 2B uses sliding window attention (~512-1024 tokens).
+    private static let maxContextMessages = 10
+    /// Hard character cap for the chat-context block (~4 chars ≈ 1 token).
+    /// Prompt overhead ≈ 80 tokens, output budget = 128 tokens,
+    /// leaving ~300-800 tokens for logs. 800 chars ≈ 200 tokens.
+    private static let maxContextChars = 800
+
     private func start() {
         guard let selfID = identity.nodeID else { return }
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
         let reachable = identity.nodesWithinRadius(identity.contextRadius, from: selfID)
+        // Take only the most recent messages that fit the budget.
         let relevant = mesh.messages
             .filter { reachable.contains($0.senderId) }
             .sorted { $0.timestamp < $1.timestamp }
+            .suffix(Self.maxContextMessages)
 
-        let contextBlock = relevant.isEmpty
-            ? "(no messages in context)"
-            : relevant.map { "[\($0.timestamp)] Node \($0.senderId): \($0.payload)" }
-                .joined(separator: "\n")
+        // If there's no context at all, answer immediately without burning LLM tokens.
+        guard !relevant.isEmpty else {
+            answer = "No mesh traffic from reachable nodes. Nothing to brief."
+            composedPrompt = "(no context available)"
+            return
+        }
 
-        let reachableList = reachable.sorted().joined(separator: ", ")
+        var lines: [String] = []
+        var charBudget = Self.maxContextChars
+        for msg in relevant.reversed() {
+            let ago = Self.relativeTime(msg.timestamp)
+            let short = String(msg.senderId.prefix(6))
+            let line = "\(short) \(ago): \(msg.payload)"
+            if charBudget - line.count < 0 { break }
+            charBudget -= line.count
+            lines.append(line)
+        }
+        let contextBlock = lines.reversed().joined(separator: "\n")
 
-        let prompt = """
-        Reachable nodes within radius \(identity.contextRadius): \(reachableList)
-
-        --- Chat context ---
-        \(contextBlock)
-
-        --- Question ---
-        \(trimmed)
-
-        --- Instructions ---
-        Answer the user's question.
+        let systemInstruction = """
+        You are TacNet Personal AI. You are not a chatbot. You do not converse. \
+        You are a military briefer. You answer questions using radio logs. \
+        Present tense. No emoji. No markdown. Never fabricate. Unknown equals UNK.
         """
 
-        composedPrompt = prompt
-        answer = ""
-        isStreaming = true
+        let userPrompt = """
+        Radio logs:
+        \(contextBlock)
 
-        streamTask = Task {
-            let messages: [[String: String]] = [
-                ["role": "user", "content": prompt],
+        Operator asks: \(trimmed)
+
+        Answer using only the logs above. If the logs lack the answer, say UNK.
+        Answer:
+        """
+
+        composedPrompt = "\(systemInstruction)\n\n\(userPrompt)"
+        answer = ""
+        isAnswering = true
+
+        answerTask = Task {
+            let messages: [[String: Any]] = [
+                ["role": "system", "content": systemInstruction],
+                ["role": "user", "content": userPrompt],
             ]
-            for await token in llm.completeStream(messages: messages, maxTokens: 512) {
-                if Task.isCancelled { break }
-                answer += token
+            log.info("Retrieval: context=\(contextBlock.count, privacy: .public) chars question=\(trimmed, privacy: .public)")
+            do {
+                let raw = try await llm.complete(
+                    messages: messages,
+                    options: ["max_tokens": 256, "temperature": 0.2]
+                )
+                log.info("Retrieval raw (\(raw.count, privacy: .public) chars): \(raw.prefix(300), privacy: .public)")
+                let processed = postProcessor.process(raw.trimmingCharacters(in: .whitespacesAndNewlines), role: .briefing)
+                log.info("Retrieval processed: \(processed, privacy: .public)")
+                answer = processed.isEmpty ? "Unable to brief. Rephrase or check mesh traffic." : processed
+            } catch {
+                log.error("Retrieval failed: \(error.localizedDescription, privacy: .public)")
+                answer = "Retrieval failed: \(error.localizedDescription)"
             }
-            isStreaming = false
+            isAnswering = false
         }
     }
 
+    private static func relativeTime(_ epochMs: Int64) -> String {
+        let seconds = Int(Date().timeIntervalSince1970) - Int(epochMs / 1000)
+        if seconds < 60 { return "\(seconds)s ago" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes)m ago" }
+        return "\(minutes / 60)h ago"
+    }
+
     private func cancel() {
-        streamTask?.cancel()
-        streamTask = nil
-        isStreaming = false
+        answerTask?.cancel()
+        answerTask = nil
+        isAnswering = false
     }
 }
 

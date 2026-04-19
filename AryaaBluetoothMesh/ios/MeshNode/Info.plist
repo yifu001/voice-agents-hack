@@ -26,8 +26,10 @@
 	<string>MeshNode uses Bluetooth to communicate with nearby devices in the mesh network.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>MeshNode uses Bluetooth to communicate with nearby devices in the mesh network.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>MeshNode uses the camera to scan the scene and analyze it on-device with Gemma.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>MeshNode uses your location to share your position with squad members on the map.</string>
+	<string>MeshNode uses your location and heading to share your position on the map and estimate bearings to detected targets.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>MeshNode uses the microphone to transcribe voice messages on-device.</string>
 	<key>UIApplicationSceneManifest</key>
