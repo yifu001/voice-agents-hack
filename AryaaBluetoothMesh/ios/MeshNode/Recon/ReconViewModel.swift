@@ -132,66 +132,67 @@ final class ReconViewModel: ObservableObject {
     }
 
     func performScan() async {
-        guard status != .scanning else {
+        guard self.status != .scanning else {
             log.warning("performScan() called while already scanning — ignoring")
             return
         }
-        refreshVisionAvailability()
-        if let scanUnavailableMessage {
-            log.error("Vision unavailable: \(scanUnavailableMessage, privacy: .public)")
-            status = .error(scanUnavailableMessage)
+        self.refreshVisionAvailability()
+        if let msg = self.scanUnavailableMessage {
+            log.error("Vision unavailable: \(msg, privacy: .public)")
+            self.status = .error(msg)
             return
         }
-        guard cameraService.authorization == .authorized else {
+        guard self.cameraService.authorization == .authorized else {
             log.error("Camera not authorized")
-            status = .error("Camera permission is required to scan the scene.")
+            self.status = .error("Camera permission is required to scan the scene.")
             return
         }
 
-        log.info("=== SCAN START === mode=\(mode.rawValue, privacy: .public) intent=\(selectedIntentID, privacy: .public)")
-        status = .scanning
-        lastAnalysisText = nil
+        log.info("=== SCAN START === mode=\(self.mode.rawValue, privacy: .public) intent=\(self.selectedIntentID, privacy: .public)")
+        self.status = .scanning
+        self.lastAnalysisText = nil
 
-        let shouldResumeRange = rangeProvider.mode == .lidar
-        let shouldReloadSTT = sttService?.isReady == true
-        log.info("Pre-scan state: cameraConfigured=\(cameraService.isConfigured, privacy: .public) shouldResumeRange=\(shouldResumeRange, privacy: .public) shouldReloadSTT=\(shouldReloadSTT, privacy: .public)")
+        let shouldResumeRange = self.rangeProvider.mode == .lidar
+        let shouldReloadSTT = self.sttService?.isReady == true
+        log.info("Pre-scan state: cameraConfigured=\(self.cameraService.isConfigured, privacy: .public) shouldResumeRange=\(shouldResumeRange, privacy: .public) shouldReloadSTT=\(shouldReloadSTT, privacy: .public)")
 
         do {
-            if !cameraService.isConfigured {
+            if !self.cameraService.isConfigured {
                 log.info("Camera not configured — configuring now")
-                try await cameraService.configure()
-                cameraService.start()
+                try await self.cameraService.configure()
+                self.cameraService.start()
             }
 
             log.info("Capturing photo…")
-            let shot = try await cameraService.capture()
+            let shot = try await self.cameraService.capture()
             log.info("Photo captured: \(Int(shot.pixelSize.width))x\(Int(shot.pixelSize.height))")
-            let headingSnapshot = headingProvider.snapshot()
+            let headingSnapshot = self.headingProvider.snapshot()
 
             log.info("Stopping camera and suspending peripherals for inference")
-            await cameraService.stopAndWait()
+            await self.cameraService.stopAndWait()
             if shouldResumeRange {
-                rangeProvider.suspendForInference()
+                self.rangeProvider.suspendForInference()
             }
             if shouldReloadSTT {
-                await sttService?.unload()
+                await self.sttService?.unload()
             }
 
             log.info("Running vision inference…")
-            let scanResult = try await visionService.scan(
+            let scanResult = try await self.visionService.scan(
                 image: shot.image,
-                intent: effectiveIntentPrompt,
-                mode: mode
+                intent: self.effectiveIntentPrompt,
+                mode: self.mode
             )
             log.info("Vision returned \(scanResult.detections.count) detections")
 
             let now = Date()
+            let rangeProviderRef = self.rangeProvider
             let fused: [TargetSighting] = scanResult.detections.compactMap { raw in
                 var lidarSample: Double?
                 if let box = TargetSighting.NormalizedBox(gemmaArray: raw.box_2d) {
                     let centroid = box.centroid
                     let normalized = CGPoint(x: centroid.x / 1000.0, y: centroid.y / 1000.0)
-                    lidarSample = rangeProvider.sampleDepthMeters(atNormalizedPoint: normalized)
+                    lidarSample = rangeProviderRef.sampleDepthMeters(atNormalizedPoint: normalized)
                 }
                 return TargetFusion.fuse(
                     detection: raw,
@@ -204,16 +205,16 @@ final class ReconViewModel: ObservableObject {
                 )
             }
 
-            lastCapturedImage = scanResult.previewImage
-            lastAnalysisText = scanResult.analysisText
-            sightings = fused
+            self.lastCapturedImage = scanResult.previewImage
+            self.lastAnalysisText = scanResult.analysisText
+            self.sightings = fused
             log.info("Restoring realtime services after successful scan")
-            await restoreRealtimeServices(shouldReloadSTT: shouldReloadSTT, shouldResumeRange: shouldResumeRange)
+            await self.restoreRealtimeServices(shouldReloadSTT: shouldReloadSTT, shouldResumeRange: shouldResumeRange)
             log.info("=== SCAN COMPLETE === \(fused.count) sightings fused")
-            status = .idle
+            self.status = .idle
         } catch {
             log.error("=== SCAN FAILED === error type: \(String(describing: type(of: error)), privacy: .public)")
-            await restoreRealtimeServices(shouldReloadSTT: shouldReloadSTT, shouldResumeRange: shouldResumeRange)
+            await self.restoreRealtimeServices(shouldReloadSTT: shouldReloadSTT, shouldResumeRange: shouldResumeRange)
             let message: String
             if let visionError = error as? BattlefieldVisionServiceError {
                 switch visionError {
@@ -240,7 +241,7 @@ final class ReconViewModel: ObservableObject {
                 log.error("Unexpected error: \(error.localizedDescription, privacy: .public)")
                 message = error.localizedDescription
             }
-            status = .error(message)
+            self.status = .error(message)
         }
     }
 
