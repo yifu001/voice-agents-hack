@@ -267,16 +267,16 @@ final class ReconViewModel: ObservableObject {
     ) async {
         log.info("Restoring services: STT=\(shouldReloadSTT, privacy: .public) range=\(shouldResumeRange, privacy: .public)")
         if shouldReloadSTT {
-            sttService?.load()
-            if case .error(let msg) = sttService?.state {
+            self.sttService?.load()
+            if case .error(let msg) = self.sttService?.state {
                 log.warning("STT failed to reload after scan: \(msg, privacy: .public)")
             }
         }
         if shouldResumeRange {
-            rangeProvider.resumeAfterInference()
+            self.rangeProvider.resumeAfterInference()
         }
         log.info("Restarting camera session")
-        await cameraService.startIfNeeded()
-        log.info("Camera restart complete, isConfigured=\(cameraService.isConfigured, privacy: .public)")
+        await self.cameraService.startIfNeeded()
+        log.info("Camera restart complete, isConfigured=\(self.cameraService.isConfigured, privacy: .public)")
     }
 }

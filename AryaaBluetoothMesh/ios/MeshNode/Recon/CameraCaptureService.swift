@@ -130,22 +130,22 @@ final class CameraCaptureService: NSObject, ObservableObject {
     }
 
     func capture() async throws -> CameraShot {
-        guard isConfigured else {
+        guard self.isConfigured else {
             log.error("capture() called but camera is not configured")
             throw CameraCaptureError.configurationFailed("not configured")
         }
-        if pendingContinuation != nil {
+        if self.pendingContinuation != nil {
             log.warning("Stale pendingContinuation detected — clearing it (previous capture likely timed out or delegate never fired)")
-            pendingContinuation = nil
+            self.pendingContinuation = nil
         }
 
         let isRunning = await withCheckedContinuation { cont in
-            sessionQueue.async { cont.resume(returning: self.session.isRunning) }
+            self.sessionQueue.async { cont.resume(returning: self.session.isRunning) }
         }
         log.info("capture(): session.isRunning=\(isRunning, privacy: .public)")
         if !isRunning {
             log.warning("Camera session not running at capture time — restarting")
-            start()
+            self.start()
             try await Task.sleep(nanoseconds: 300_000_000) // 300ms for session to stabilize
         }
 
@@ -154,20 +154,22 @@ final class CameraCaptureService: NSObject, ObservableObject {
         settings.photoQualityPrioritization = .speed
 
         log.info("Requesting photo capture")
+        let photoOutput = self.photoOutput
+        let sessionQueue = self.sessionQueue
         return try await withThrowingTaskGroup(of: CameraShot.self) { group in
-            group.addTask { @MainActor in
+            group.addTask { @MainActor [weak self] in
                 try await withCheckedThrowingContinuation { continuation in
+                    guard let self else {
+                        continuation.resume(throwing: CameraCaptureError.captureFailed("service gone"))
+                        return
+                    }
                     self.pendingContinuation = continuation
-                    self.sessionQueue.async { [weak self] in
-                        guard let self else {
-                            continuation.resume(throwing: CameraCaptureError.captureFailed("service gone"))
-                            return
-                        }
-                        self.photoOutput.capturePhoto(with: settings, delegate: self)
+                    sessionQueue.async {
+                        photoOutput.capturePhoto(with: settings, delegate: self)
                     }
                 }
             }
-            group.addTask { @MainActor in
+            group.addTask {
                 try await Task.sleep(nanoseconds: 10_000_000_000) // 10s timeout
                 throw CameraCaptureError.captureTimedOut
             }
