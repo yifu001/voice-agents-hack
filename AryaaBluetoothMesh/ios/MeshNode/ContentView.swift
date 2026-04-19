@@ -15,6 +15,8 @@ struct ContentView: View {
     @EnvironmentObject var llm: LLMService
     @EnvironmentObject var tts: TTSService
 
+    @State private var spokenIDs: Set<String> = []
+
     var body: some View {
         TabView {
             ChatTab(messages: nodeMessages)
@@ -29,7 +31,10 @@ struct ContentView: View {
                 .tabItem { Label("Retrieval", systemImage: "sparkles.rectangle.stack") }
         }
         .hideKeyboardOnTap()
-        .onChange(of: mesh.messages.count) { _, _ in kickOffPendingSummaries() }
+        .onChange(of: mesh.messages.count) { _, _ in
+            kickOffPendingSummaries()
+            speakExactMessages()
+        }
         .onChange(of: llm.state) { _, newValue in
             if newValue == .ready { kickOffPendingSummaries() }
         }
@@ -46,6 +51,16 @@ struct ContentView: View {
         for msg in mesh.messages where msg.senderId != mesh.selfId {
             if identity.incomingEdgeType(fromSenderID: msg.senderId) == .summary {
                 summaries.requestSummary(messageID: msg.id, text: msg.payload)
+            }
+        }
+    }
+
+    private func speakExactMessages() {
+        for msg in mesh.messages where msg.senderId != mesh.selfId {
+            guard !spokenIDs.contains(msg.id) else { continue }
+            if identity.incomingEdgeType(fromSenderID: msg.senderId) == .exact {
+                spokenIDs.insert(msg.id)
+                tts.speak(msg.payload)
             }
         }
     }
