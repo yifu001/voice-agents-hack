@@ -91,27 +91,33 @@ final class BattlefieldVisionService {
         intent: String,
         mode: ReconScanMode = .quick
     ) async throws -> ScanResult {
+        log.info("Vision scan starting: mode=\(mode.rawValue, privacy: .public) maxTokens=\(mode.maxResponseTokens, privacy: .public) imageBudget=\(mode.tokenBudget, privacy: .public)")
+
         let prepared = try autoreleasepool {
             let modelImage = Self.downscaledForModel(image, maxDimension: maxModelImageDimension)
+            log.info("Image downscaled: \(Int(modelImage.size.width * modelImage.scale))x\(Int(modelImage.size.height * modelImage.scale))")
             let imageURL = try Self.writeTempJPEG(modelImage, into: tempDirectory, quality: jpegQuality)
             return PreparedScanInput(previewImage: modelImage, imageURL: imageURL)
         }
         defer { try? FileManager.default.removeItem(at: prepared.imageURL) }
 
+        log.info("Waiting for LLM to be ready (state=\(String(describing: llmService.state), privacy: .public))")
         try await llmService.waitUntilReady()
 
         let imageExists = FileManager.default.fileExists(atPath: prepared.imageURL.path)
-        log.info("Vision scan using Gemma completion path: image=\(prepared.imageURL.path, privacy: .public) exists=\(imageExists, privacy: .public) mode=\(mode.rawValue, privacy: .public)")
+        let imageSize = (try? FileManager.default.attributesOfItem(atPath: prepared.imageURL.path)[.size] as? Int) ?? 0
+        log.info("Vision scan: image=\(prepared.imageURL.lastPathComponent, privacy: .public) exists=\(imageExists, privacy: .public) size=\(imageSize, privacy: .public) bytes")
 
+        log.info("Calling llmService.complete() with vision message…")
         let rawResponse = try await llmService.complete(
             messages: try Self.buildMessages(intent: intent, imageURL: prepared.imageURL),
             options: Self.buildOptions(mode: mode)
         )
 
-        log.info("Vision raw response (\(rawResponse.count) chars): \(rawResponse.prefix(500), privacy: .public)")
+        log.info("Vision raw response (\(rawResponse.count) chars): \(rawResponse.prefix(800), privacy: .public)")
 
         let output = try Self.parseOutput(from: rawResponse)
-        log.info("Parsed \(output.detections.count) detections")
+        log.info("Parsed output: \(output.detections.count) detections, hasAnalysis=\(output.analysisText != nil, privacy: .public)")
         return ScanResult(
             detections: output.detections,
             analysisText: output.analysisText,

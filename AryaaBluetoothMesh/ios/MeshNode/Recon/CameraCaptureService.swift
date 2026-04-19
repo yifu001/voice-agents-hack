@@ -2,6 +2,9 @@ import AVFoundation
 import CoreGraphics
 import Foundation
 import UIKit
+import os
+
+private let log = Logger(subsystem: "com.cactushack.MeshNode", category: "recon.camera")
 
 struct CameraShot: Sendable {
     let image: UIImage
@@ -14,6 +17,7 @@ enum CameraCaptureError: Error, Equatable {
     case permissionDenied
     case configurationFailed(String)
     case captureFailed(String)
+    case captureTimedOut
     case noImageData
 }
 
@@ -79,9 +83,11 @@ final class CameraCaptureService: NSObject, ObservableObject {
     }
 
     func start() {
+        log.info("Camera start requested")
         sessionQueue.async { [weak self] in
             guard let self, !self.session.isRunning else { return }
             self.session.startRunning()
+            log.info("Camera session started, isRunning=\(self.session.isRunning, privacy: .public)")
         }
     }
 
@@ -125,26 +131,49 @@ final class CameraCaptureService: NSObject, ObservableObject {
 
     func capture() async throws -> CameraShot {
         guard isConfigured else {
+            log.error("capture() called but camera is not configured")
             throw CameraCaptureError.configurationFailed("not configured")
         }
-        // Prevent concurrent captures — the previous continuation would be orphaned.
-        guard pendingContinuation == nil else {
-            throw CameraCaptureError.captureFailed("capture already in progress")
+        if pendingContinuation != nil {
+            log.warning("Stale pendingContinuation detected — clearing it (previous capture likely timed out or delegate never fired)")
+            pendingContinuation = nil
+        }
+
+        let isRunning = await withCheckedContinuation { cont in
+            sessionQueue.async { cont.resume(returning: self.session.isRunning) }
+        }
+        log.info("capture(): session.isRunning=\(isRunning, privacy: .public)")
+        if !isRunning {
+            log.warning("Camera session not running at capture time — restarting")
+            start()
+            try await Task.sleep(nanoseconds: 300_000_000) // 300ms for session to stabilize
         }
 
         let settings = AVCapturePhotoSettings()
         settings.flashMode = .off
         settings.photoQualityPrioritization = .speed
 
-        return try await withCheckedThrowingContinuation { continuation in
-            self.pendingContinuation = continuation
-            sessionQueue.async { [weak self] in
-                guard let self else {
-                    continuation.resume(throwing: CameraCaptureError.captureFailed("service gone"))
-                    return
+        log.info("Requesting photo capture")
+        return try await withThrowingTaskGroup(of: CameraShot.self) { group in
+            group.addTask { @MainActor in
+                try await withCheckedThrowingContinuation { continuation in
+                    self.pendingContinuation = continuation
+                    self.sessionQueue.async { [weak self] in
+                        guard let self else {
+                            continuation.resume(throwing: CameraCaptureError.captureFailed("service gone"))
+                            return
+                        }
+                        self.photoOutput.capturePhoto(with: settings, delegate: self)
+                    }
                 }
-                self.photoOutput.capturePhoto(with: settings, delegate: self)
             }
+            group.addTask { @MainActor in
+                try await Task.sleep(nanoseconds: 10_000_000_000) // 10s timeout
+                throw CameraCaptureError.captureTimedOut
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
         }
     }
 
@@ -227,16 +256,21 @@ extension CameraCaptureService: AVCapturePhotoCaptureDelegate {
         error: Error?
     ) {
         Task { @MainActor in
-            guard let continuation = self.pendingContinuation else { return }
+            guard let continuation = self.pendingContinuation else {
+                log.warning("Photo delegate fired but no pendingContinuation (timed out or cancelled)")
+                return
+            }
             self.pendingContinuation = nil
 
             if let error {
+                log.error("Photo capture delegate error: \(error.localizedDescription, privacy: .public)")
                 continuation.resume(throwing: CameraCaptureError.captureFailed(error.localizedDescription))
                 return
             }
 
             guard let data = photo.fileDataRepresentation(),
                   let image = UIImage(data: data) else {
+                log.error("Photo delegate returned no image data")
                 continuation.resume(throwing: CameraCaptureError.noImageData)
                 return
             }
@@ -245,6 +279,7 @@ extension CameraCaptureService: AVCapturePhotoCaptureDelegate {
                 width: image.size.width * image.scale,
                 height: image.size.height * image.scale
             )
+            log.info("Photo captured: \(Int(size.width))x\(Int(size.height))")
             let shot = CameraShot(
                 image: image,
                 pixelSize: size,

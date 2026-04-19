@@ -132,32 +132,43 @@ final class ReconViewModel: ObservableObject {
     }
 
     func performScan() async {
-        guard status != .scanning else { return }
+        guard status != .scanning else {
+            log.warning("performScan() called while already scanning — ignoring")
+            return
+        }
         refreshVisionAvailability()
         if let scanUnavailableMessage {
+            log.error("Vision unavailable: \(scanUnavailableMessage, privacy: .public)")
             status = .error(scanUnavailableMessage)
             return
         }
         guard cameraService.authorization == .authorized else {
+            log.error("Camera not authorized")
             status = .error("Camera permission is required to scan the scene.")
             return
         }
 
+        log.info("=== SCAN START === mode=\(mode.rawValue, privacy: .public) intent=\(selectedIntentID, privacy: .public)")
         status = .scanning
         lastAnalysisText = nil
 
         let shouldResumeRange = rangeProvider.mode == .lidar
         let shouldReloadSTT = sttService?.isReady == true
+        log.info("Pre-scan state: cameraConfigured=\(cameraService.isConfigured, privacy: .public) shouldResumeRange=\(shouldResumeRange, privacy: .public) shouldReloadSTT=\(shouldReloadSTT, privacy: .public)")
 
         do {
             if !cameraService.isConfigured {
+                log.info("Camera not configured — configuring now")
                 try await cameraService.configure()
                 cameraService.start()
             }
 
+            log.info("Capturing photo…")
             let shot = try await cameraService.capture()
+            log.info("Photo captured: \(Int(shot.pixelSize.width))x\(Int(shot.pixelSize.height))")
             let headingSnapshot = headingProvider.snapshot()
 
+            log.info("Stopping camera and suspending peripherals for inference")
             await cameraService.stopAndWait()
             if shouldResumeRange {
                 rangeProvider.suspendForInference()
@@ -166,11 +177,13 @@ final class ReconViewModel: ObservableObject {
                 await sttService?.unload()
             }
 
+            log.info("Running vision inference…")
             let scanResult = try await visionService.scan(
                 image: shot.image,
                 intent: effectiveIntentPrompt,
                 mode: mode
             )
+            log.info("Vision returned \(scanResult.detections.count) detections")
 
             let now = Date()
             let fused: [TargetSighting] = scanResult.detections.compactMap { raw in
@@ -194,26 +207,39 @@ final class ReconViewModel: ObservableObject {
             lastCapturedImage = scanResult.previewImage
             lastAnalysisText = scanResult.analysisText
             sightings = fused
+            log.info("Restoring realtime services after successful scan")
             await restoreRealtimeServices(shouldReloadSTT: shouldReloadSTT, shouldResumeRange: shouldResumeRange)
+            log.info("=== SCAN COMPLETE === \(fused.count) sightings fused")
             status = .idle
         } catch {
+            log.error("=== SCAN FAILED === error type: \(String(describing: type(of: error)), privacy: .public)")
             await restoreRealtimeServices(shouldReloadSTT: shouldReloadSTT, shouldResumeRange: shouldResumeRange)
             let message: String
             if let visionError = error as? BattlefieldVisionServiceError {
                 switch visionError {
                 case .modelReturnedNoVisionOutput(let detail):
+                    log.error("Vision produced no output: \(detail, privacy: .public)")
                     message = detail
                 case .invalidModelResponse(let detail):
+                    log.error("Vision invalid response: \(detail, privacy: .public)")
                     message = "Bad model output: \(detail)"
                 case .failedToEncodeImage:
+                    log.error("Failed to encode camera image to JPEG")
                     message = "Failed to encode camera image."
                 case .failedToWriteTempImage(let detail):
+                    log.error("Failed to write temp image: \(detail, privacy: .public)")
                     message = "Failed to save image: \(detail)"
                 }
+            } else if let cameraError = error as? CameraCaptureError {
+                log.error("Camera error: \(String(describing: cameraError), privacy: .public)")
+                message = "Camera: \(cameraError.localizedDescription ?? String(describing: cameraError))"
+            } else if let llmError = error as? LLMService.CompletionError {
+                log.error("LLM error: \(String(describing: llmError), privacy: .public)")
+                message = llmError.localizedDescription ?? String(describing: llmError)
             } else {
+                log.error("Unexpected error: \(error.localizedDescription, privacy: .public)")
                 message = error.localizedDescription
             }
-            log.error("Scan failed: \(message, privacy: .public)")
             status = .error(message)
         }
     }
@@ -239,9 +265,8 @@ final class ReconViewModel: ObservableObject {
         shouldReloadSTT: Bool,
         shouldResumeRange: Bool
     ) async {
+        log.info("Restoring services: STT=\(shouldReloadSTT, privacy: .public) range=\(shouldResumeRange, privacy: .public)")
         if shouldReloadSTT {
-            // STT reload is best-effort — don't let a corrupt parakeet copy
-            // block the scan result from being displayed.
             sttService?.load()
             if case .error(let msg) = sttService?.state {
                 log.warning("STT failed to reload after scan: \(msg, privacy: .public)")
@@ -250,6 +275,8 @@ final class ReconViewModel: ObservableObject {
         if shouldResumeRange {
             rangeProvider.resumeAfterInference()
         }
+        log.info("Restarting camera session")
         await cameraService.startIfNeeded()
+        log.info("Camera restart complete, isConfigured=\(cameraService.isConfigured, privacy: .public)")
     }
 }
