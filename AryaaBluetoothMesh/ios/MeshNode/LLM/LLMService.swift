@@ -40,7 +40,7 @@ final class LLMService: ObservableObject {
 
     @Published private(set) var state: LoadState = .notLoaded
 
-    private var model: CactusModelT?
+    private(set) var model: CactusModelT?
     private let loadQueue = DispatchQueue(label: "cactus.load", qos: .userInitiated)
     private let inferenceQueue = DispatchQueue(label: "cactus.infer", qos: .userInitiated)
     private let postProcessor = OutputPostProcessor()

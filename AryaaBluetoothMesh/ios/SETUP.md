@@ -1,6 +1,6 @@
 # MeshNode — setup
 
-An iPhone-only Bluetooth mesh chat app with on-device LLM (Gemma 4 E2B) and STT (Parakeet CTC 0.6B). Everything runs locally; no network after install.
+An iPhone-only Bluetooth mesh chat app with on-device LLM and STT (both Gemma 4 E2B). Everything runs locally; no network after install.
 
 The repo does **not** include the model weights (~7 GB) or the Cactus xcframework (~9 MB). You build/download those locally before opening Xcode.
 
@@ -56,7 +56,6 @@ cactus auth
 
 ```bash
 cactus download google/gemma-4-e2b-it           # ~5 GB download, ~6.3 GB extracted
-cactus download nvidia/parakeet-ctc-0.6b        # ~700 MB
 ```
 
 The weights land under `cactus/weights/`.
@@ -75,7 +74,6 @@ cp apple/Cactus.swift ../MeshNode/ios/MeshNode/LLM/
 
 # Model weights
 cp -R weights/gemma-4-e2b-it ../MeshNode/ios/MeshNode/Models/
-cp -R weights/parakeet-ctc-0.6b ../MeshNode/ios/MeshNode/Models/
 ```
 
 One more fix-up — the xcframework built by Cactus ships without a `Modules/module.modulemap`, which Swift needs to import it. Add it to both slices:
@@ -106,14 +104,14 @@ In Xcode: project navigator → `MeshNode` target → **Signing & Capabilities**
 
 Plug in an iPhone 13 or newer, select it as the destination, press ⌘R. First install is slow (~5 minutes) because it has to transfer ~7 GB of model weights over cable. Subsequent runs are fast; Xcode only pushes what changed.
 
-On first launch the app also copies Parakeet's weights from the read-only bundle into Application Support so Cactus can persist its compiled Core ML cache. Expect the first voice-model load to take ~10 seconds longer than subsequent launches.
+STT now shares the Gemma model — no separate model copy is needed at first launch.
 
 ## What to expect on launch
 
 1. Pick a node identity (A / B / C / D).
 2. Mesh connects to any other iPhone in range running the same app + node.
 3. Gemma loads on a background thread (15–60 s on iPhone 13). The Retrieval tab's **Answer** button is disabled until it's ready.
-4. Parakeet loads in parallel (~5 s). The mic icons light up when it's ready.
+4. STT uses the same Gemma model. The mic icons light up once Gemma is ready.
 5. Send a message by typing or by pressing-and-holding the mic. Messages broadcast across the mesh.
 6. The **Node** tab filters incoming messages per the bundled `graph.json` — some pass through verbatim, others get summarised by Gemma.
 7. The **Retrieval** tab answers free-form questions about what your node has seen, with configurable context radius.

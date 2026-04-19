@@ -160,13 +160,9 @@ final class ReconViewModel: ObservableObject {
         sightings = []
 
         let shouldResumeRange = enableDepthFusion && rangeProvider.mode == .lidar
-        // With the 320px image cap, Metal prefill buffers are small enough that
-        // Parakeet can stay resident. Only unload if it was ready (so we can
-        // reload it after) AND if a previous scan already bad_alloc'd (indicating
-        // this device needs the extra headroom). For now keep Parakeet in memory
-        // and let the bad_alloc recovery path handle the rare failure case.
+        // STT now shares the Gemma model — no separate model to unload/reload.
         let shouldReloadSTT = false
-        log.info("Pre-scan state: cameraConfigured=\(self.cameraService.isConfigured, privacy: .public) shouldResumeRange=\(shouldResumeRange, privacy: .public) parakeetKept=true")
+        log.info("Pre-scan state: cameraConfigured=\(self.cameraService.isConfigured, privacy: .public) shouldResumeRange=\(shouldResumeRange, privacy: .public)")
 
         do {
             if !self.cameraService.isConfigured {
@@ -180,7 +176,7 @@ final class ReconViewModel: ObservableObject {
             log.info("Photo captured: \(Int(shot.pixelSize.width))x\(Int(shot.pixelSize.height))")
             let headingSnapshot = self.headingProvider.snapshot()
 
-            log.info("Stopping camera for inference (Parakeet stays loaded)")
+            log.info("Stopping camera for inference")
             await self.cameraService.stopAndWait()
             if shouldResumeRange {
                 self.rangeProvider.suspendForInference()
@@ -283,10 +279,6 @@ final class ReconViewModel: ObservableObject {
         log.info("Restoring services: STT=\(shouldReloadSTT, privacy: .public) range=\(shouldResumeRange, privacy: .public)")
         if shouldReloadSTT, let sttService {
             Task { @MainActor in
-                // 5 s delay: after a bad_alloc the OS needs several seconds to
-                // reclaim the freed Gemma compute buffers before Parakeet's mmap
-                // and CoreML mlmodelc parse can succeed. 1.5 s was too short.
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
                 sttService.load()
                 if case .error(let msg) = sttService.state {
                     log.warning("STT failed to reload after scan: \(msg, privacy: .public)")

@@ -55,6 +55,7 @@ private struct MeshRootView: View {
             .onAppear {
                 mesh.start()
                 llm.load()
+                stt.bind(to: llm)
                 stt.load()
             }
     }
