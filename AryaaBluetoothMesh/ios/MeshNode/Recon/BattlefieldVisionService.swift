@@ -160,13 +160,15 @@ final class BattlefieldVisionService {
     }
 
     private static func buildOptions(mode: ReconScanMode) -> [String: Any] {
+        // Stop tokens are Gemma-specific. The previous ChatML tokens
+        // (<|im_end|>, <end_of_turn>) never fire on Gemma 4 output, which let
+        // the model trail past the JSON array and ruin the parse.
         [
             "max_tokens": mode.maxResponseTokens,
             "temperature": 0.0,
-            "image_token_budget": mode.tokenBudget,
             "top_p": 0.95,
             "top_k": 40,
-            "stop_sequences": ["<|im_end|>", "<end_of_turn>"]
+            "stop_sequences": ["<turn|>", "<eos>", "</s>", "```\n\n"],
         ]
     }
 

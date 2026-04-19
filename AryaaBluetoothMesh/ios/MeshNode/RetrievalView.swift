@@ -159,13 +159,18 @@ struct RetrievalView: View {
         }
     }
 
-    /// Max number of recent messages to include in the LLM context.
-    /// Gemma 4 2B uses sliding window attention (~512-1024 tokens).
-    private static let maxContextMessages = 10
-    /// Hard character cap for the chat-context block (~4 chars ≈ 1 token).
-    /// Prompt overhead ≈ 80 tokens, output budget = 128 tokens,
-    /// leaving ~300-800 tokens for logs. 800 chars ≈ 200 tokens.
-    private static let maxContextChars = 800
+    /// Upper bound on how many recent messages we even look at. Bigger than the
+    /// char budget below is fine — the budget loop trims further.
+    private static let maxContextMessages = 80
+
+    /// Token budgeting, conservatively (~4 chars ≈ 1 token).
+    /// Cactus KV buffer: 4096 tokens (cactus_init.cpp:359).
+    /// Reserved for fixed pieces: system(~60) + framing(~30) + output(256) +
+    /// question-headroom(~120) = ~466 tokens. Leaves ~3600 tokens for logs.
+    /// We keep a safety margin and use 3000 tokens ≈ 12,000 chars for context.
+    /// If logs exceed this, the newest entries win (question sits at the bottom
+    /// of the prompt and must fit; oldest logs get dropped first).
+    private static let maxContextChars = 12_000
 
     private func start() {
         guard let selfID = identity.nodeID else { return }
@@ -186,8 +191,11 @@ struct RetrievalView: View {
             return
         }
 
+        // Reserve room for the question itself so long typed input doesn't
+        // crowd out the logs. Question sits at the bottom of the prompt; logs
+        // get truncated from the top (oldest first) if they don't fit.
+        var charBudget = max(Self.maxContextChars - trimmed.count, 1_000)
         var lines: [String] = []
-        var charBudget = Self.maxContextChars
         for msg in relevant.reversed() {
             let ago = Self.relativeTime(msg.timestamp)
             let short = String(msg.senderId.prefix(6))
@@ -199,19 +207,18 @@ struct RetrievalView: View {
         let contextBlock = lines.reversed().joined(separator: "\n")
 
         let systemInstruction = """
-        You are TacNet Personal AI. You are not a chatbot. You do not converse. \
-        You are a military briefer. You answer questions using radio logs. \
-        Present tense. No emoji. No markdown. Never fabricate. Unknown equals UNK.
+        You are a question-answering system. The user gives you chat logs and a \
+        question. You answer the question using ONLY information from the logs. \
+        If the logs do not contain the answer, reply with just "UNK". \
+        Keep your answer short — at most 3 sentences. Do not greet, acknowledge, \
+        confirm receipt, or say things like "query received". Just answer.
         """
 
         let userPrompt = """
-        Radio logs:
+        Chat logs:
         \(contextBlock)
 
-        Operator asks: \(trimmed)
-
-        Answer using only the logs above. If the logs lack the answer, say UNK.
-        Answer:
+        Question: \(trimmed)
         """
 
         composedPrompt = "\(systemInstruction)\n\n\(userPrompt)"
